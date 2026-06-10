@@ -31,15 +31,23 @@ def slim_memory_for_model(snapshot: dict[str, Any] | None) -> dict[str, Any] | N
         return snapshot
     recall = snapshot.get("recall") if isinstance(snapshot.get("recall"), dict) else {}
     recall_items = recall.get("items") if isinstance(recall.get("items"), list) else []
+    # 召回列表按多样性分组返回,并非分数序;给模型的 top10 必须按分数取,
+    # 否则高分的"已交付方案"条目可能被截掉。
+    ranked = sorted(
+        (item for item in recall_items if isinstance(item, dict)),
+        key=lambda item: float(item.get("score") or 0),
+        reverse=True,
+    )
     slim_items = [
         {
             "title": item.get("title"),
+            "kind": item.get("kind"),
+            "content": str(item.get("content") or "")[:600],
             "scope": item.get("scope"),
             "reason": item.get("reason"),
             "score": item.get("score"),
         }
-        for item in recall_items[:10]
-        if isinstance(item, dict)
+        for item in ranked[:10]
     ]
     ledger = snapshot.get("taskLedger") if isinstance(snapshot.get("taskLedger"), dict) else None
     slim_ledger = None
@@ -196,6 +204,46 @@ class MemoryService:
                 )
                 + "\n"
             )
+
+    def record_solution(
+        self,
+        conversation_id: str,
+        repository: dict[str, Any] | None,
+        requirement: str,
+        changed_files: list[str],
+        verification: str,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+    ) -> None:
+        """把已验证的交付方案沉淀为长期记忆。
+
+        锚点：历史需求结构化沉淀,相似新需求自动召回旧方案。条目按仓库
+        命名空间存储、高重要度,跨会话 recall 时与新需求做相似度匹配。
+        """
+        cleaned = (requirement or "").strip()
+        if not cleaned:
+            return
+        title = f"已交付方案：{cleaned.splitlines()[0][:80]}"
+        lines = [
+            f"需求：{cleaned[:600]}",
+            f"改动文件：{', '.join(changed_files[:12]) or '（见交付包）'}",
+            f"验证：{verification}",
+        ]
+        if branch:
+            lines.append(f"提测分支：{branch}（{(commit_sha or '')[:12]}）")
+        try:
+            self.long_term_store.upsert_manual(
+                conversation_id=conversation_id,
+                repository=repository,
+                title=title,
+                content="\n".join(lines),
+                kind="delivery",
+                tags=["solution", "delivered"],
+                importance=4.2,
+            )
+        except Exception:
+            # 记忆沉淀失败不阻断交付链路
+            pass
 
     def record_delivery_report(self, conversation_id: str, report: dict[str, Any]) -> None:
         paths = self.ensure_layout(conversation_id)

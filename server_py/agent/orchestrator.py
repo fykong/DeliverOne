@@ -311,6 +311,15 @@ class AgentOrchestrator:
                         "commitSha": record.get("commitSha"),
                         "prUrl": (record.get("pullRequest") or {}).get("url"),
                     }
+                    self.memory.record_solution(
+                        conversation_id,
+                        state.get("repository"),
+                        requirement,
+                        [str(item.get("path") if isinstance(item, dict) else item) for item in report.get("changedFiles", [])][:12],
+                        f"托管交付：终检与验证门禁通过（{summary['rounds']} 轮）",
+                        branch=record.get("branch"),
+                        commit_sha=record.get("commitSha"),
+                    )
                 else:
                     summary["reason"] += "（验证门禁未通过，已生成交付包但未自动提测。）"
             except Exception as error:

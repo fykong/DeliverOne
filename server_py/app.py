@@ -1131,6 +1131,15 @@ def delivery_submit(body: DeliverySubmitBody) -> dict[str, Any]:
             "已生成提测分支",
             f"分支 {record.get('branch')}，模式 {record.get('mode')}，PR：{record.get('pullRequest', {}).get('url') or '未创建'}",
         )
+        services.memory.record_solution(
+            body.conversationId,
+            state.get("repository"),
+            str(record.get("requirement") or state.get("lastRequirement") or ""),
+            [str(item) for item in ((plan or {}).get("evidence", {}) or {}).get("diffFiles", [])][:12],
+            "提测时验证门禁已通过",
+            branch=record.get("branch"),
+            commit_sha=record.get("commitSha"),
+        )
         return record
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
