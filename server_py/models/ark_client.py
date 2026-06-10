@@ -38,6 +38,8 @@ class ArkClient:
                 "model": model_name,
                 "messages": messages,
                 "temperature": float(model.get("temperature", 0.2)),
+                # 跨栈写入计划要在单次输出里携带多个完整文件，默认输出上限会截断 JSON。
+                "max_tokens": int(model.get("maxOutputTokens") or 16384),
             }
         ).encode("utf-8")
 
