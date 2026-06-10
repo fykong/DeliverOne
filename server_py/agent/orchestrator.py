@@ -232,6 +232,11 @@ class AgentOrchestrator:
                 if executed.get("status") == "completed":
                     should_continue, reason = self._should_create_continuation_plan(executed)
                     if not should_continue:
+                        # 推进上限触发的停止是"被迫停",不是"做完了"——
+                        # 阅读量任务实测:前端没写完却报"已完成",必须如实交还人工。
+                        if "上限" in reason:
+                            summary.update(needsHuman=True, stage="continuation-cap", reason=f"需求可能尚未全部完成：{reason}")
+                            return finish(bundle)
                         summary.update(finished=True, stage="done", reason=reason)
                         break
                     summary.update(needsHuman=True, stage="continuation", reason=f"推进循环未能自动生成下一轮计划：{reason}")
@@ -248,6 +253,9 @@ class AgentOrchestrator:
             if status == "completed":
                 should_continue, reason = self._should_create_continuation_plan(plan)
                 if not should_continue:
+                    if "上限" in reason:
+                        summary.update(needsHuman=True, stage="continuation-cap", reason=f"需求可能尚未全部完成：{reason}")
+                        return finish(self._bundle(conversation_id))
                     summary.update(finished=True, stage="done", reason=reason)
                     break
                 try:
@@ -706,8 +714,12 @@ class AgentOrchestrator:
                 repository=plan.get("repository"),
                 requirement=plan.get("requirement"),
             )
+            # 只读快审仅限"写入前的侦察":一旦会话里已有代码写入(存在 checkpoint),
+            # 后续哪怕是只读复查也必须走模型完整验证——否则 requirementCompleted
+            # 判断在收尾阶段消失,推进循环只能盲转到上限(阅读量任务实测踩过)。
+            recon_only = self._plan_is_read_only(plan) and not self.checkpoints.list(conversation_id)
             verification = self.roles.verify_execution(
-                plan, conversation_id, memory_snapshot=verification_memory, prefer_rules=self._plan_is_read_only(plan)
+                plan, conversation_id, memory_snapshot=verification_memory, prefer_rules=recon_only
             )
             plan = self.tool_call_plans.append_audit(conversation_id, verification, plan["id"])
             self.events.append(

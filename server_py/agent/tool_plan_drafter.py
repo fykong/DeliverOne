@@ -272,6 +272,7 @@ class ToolPlanDrafter:
                         "完成写入后必须安排 verification.run 步骤（input 用 {}，运行时会按仓库栈选择验证命令）。",
                         SANDBOX_PLATFORM_RULE,
                         "必须遵守 skillRuntime 中的约束与变更清单（changeChecklist），不要遗漏需求要求的测试文件。",
+                        "定位铁律：搜索词和读取目标必须优先采用 skillRuntime.pattern.locateStrategy 和 memory 召回中给出的真实路径/组件名（它们来自仓库画像，是实际存在的）；禁止凭空发明组件名（如 ArticleCard）去搜索。上一轮搜索无果时，先 code.read_file 读取 locateStrategy 列出的具体文件，而不是换个想象的名字再搜。",
                         "必须遵守 memory.taskState：用户暂停的阶段不得推进；用户覆盖的下一步动作优先。",
                         "写入仍会等待用户确认，不要假设自动执行。",
                     ]
