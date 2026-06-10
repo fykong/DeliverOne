@@ -58,7 +58,7 @@ class ModelConfigService:
             "displayName": "Doubao Seed 2.0 Lite",
             "provider": "ark",
             "endpoint": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-            "model": "EP_ID_REDACTED",
+            "model": "",
             "apiKeyEnv": "ARK_API_KEY",
             "modelEnv": "ARK_MODEL",
             "enabled": bool(os.environ.get("ARK_API_KEY")),

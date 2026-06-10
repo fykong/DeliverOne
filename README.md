@@ -26,7 +26,7 @@ npm run dev
 | 配置 | 位置 | 说明 |
 |---|---|---|
 | `ARK_API_KEY` | 项目根目录 `.env` | 火山方舟 doubao-seed-2.0-lite,**仅限本课题使用** |
-| `ARK_MODEL` | `.env`(可选) | 覆盖 EP id,默认取 `config/model-providers.json` |
+| `ARK_MODEL` | 项目根目录 `.env` | 比赛下发的 EP id(与 key 同为受控信息,不入库) |
 | `GITHUB_TOKEN` | `.env`(可选) | 配置后提测链路自动 push 分支并创建 GitHub PR;未配置则产出 PR-ready 分支 + patch |
 
 `.env` 已被 gitignore,不会进入仓库。

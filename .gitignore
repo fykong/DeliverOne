@@ -8,3 +8,4 @@ workspace/
 config/model-settings.local.json
 *.log
 .codex-upstream/
+.claude/
