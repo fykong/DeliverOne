@@ -1,11 +1,12 @@
 {
   "version": 1,
-  "currency": "USD",
+  "currency": "CNY",
   "models": {
     "doubao-seed-2-lite": {
-      "inputPer1M": 0,
-      "outputPer1M": 0,
-      "note": "价格未配置时成本显示为 0，仍记录 token 和耗时。"
+      "inputPer1M": 0.6,
+      "outputPer1M": 3.6,
+      "cachedInputPer1M": 0.12,
+      "note": "doubao-seed-2.0-lite [0,32k] 档官方价(元/百万 tokens);缓存命中输入按 2 折。来源:方舟价格文档 82379/1544106。"
     }
   }
 }
