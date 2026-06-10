@@ -207,7 +207,7 @@ class MemoryCurator:
         kind = str(entry.get("kind") or "")
         tags = {str(tag) for tag in entry.get("tags", [])}
         content = str(entry.get("content") or "").strip()
-        if not content:
+        if not content or self._is_noise(content):
             return None
 
         section = ""
@@ -418,7 +418,17 @@ class MemoryCurator:
         lowered = content.lower()
         return any(token in lowered for token in ["pass", "passed", "ok", "completed", "通过", "完成", "成功", "交付包"])
 
+    def _is_noise(self, content: str) -> bool:
+        """流程状态记录和占位符不是知识,绝不能进入策展记忆——
+        它们重要度高还常被置顶,会把真实约束/偏好挤出召回窗口。"""
+        head = content.strip()[:80]
+        placeholder_prefixes = ("未发现", "暂无", "尚无", "没有检测到")
+        process_markers = ("计划已确认", "工具计划已执行", "工具计划已生成", "已进入代码定位阶段", "checkpoint 门禁", "阶段完成", "执行结束")
+        return head.startswith(placeholder_prefixes) or any(marker in content[:200] for marker in process_markers)
+
     def _looks_like_user_preference(self, content: str) -> bool:
+        if self._is_noise(content):
+            return False
         lowered = content.lower()
         keywords = ["中文", "简洁", "干净", "不要", "必须", "希望", "默认", "按钮", "页面", "配色", "用户"]
         ascii_keywords = ["ui", "ux", "simple", "clean", "chinese", "button", "layout", "default", "prefer", "must", "do not"]
