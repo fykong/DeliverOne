@@ -66,4 +66,5 @@ def test_env_file_loading(tmp_path, monkeypatch):
     import os
 
     assert os.environ["SMOKE_TEST_KEY"] == "abc123"
-    assert os.environ["EXISTING"] == "原值"  # 不覆盖已有变量
+    # .env 优先:演示机残留的系统级旧 key 不能覆盖项目配置
+    assert os.environ["EXISTING"] == "新值"

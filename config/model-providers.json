@@ -5,11 +5,14 @@
       "id": "doubao-seed-2-lite",
       "displayName": "Doubao Seed 2.0 Lite",
       "provider": "ark",
-      "endpoint": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+      "endpoint": "http://127.0.0.1:4000/v1/model/chat/completions",
+      "directEndpoint": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
       "model": "EP_ID_REDACTED",
       "apiKeyEnv": "ARK_API_KEY",
       "modelEnv": "ARK_MODEL",
-      "maxContextTokens": 128000
+      "maxContextTokens": 128000,
+      "timeoutSeconds": 120,
+      "note": "endpoint 指向 Node 网关(密钥托管/限流/观测)；网关再转发火山方舟。"
     }
   ]
 }

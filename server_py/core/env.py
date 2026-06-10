@@ -9,10 +9,11 @@ _loaded = False
 
 
 def load_env_file(path: Path | None = None) -> dict[str, str]:
-    """加载项目根目录 .env 到进程环境变量（不覆盖已存在的变量）。
+    """加载项目根目录 .env 到进程环境变量。
 
-    让用户拿到 ARK_API_KEY 后只需要在 .env 写一行即可，
-    不依赖系统级环境变量配置。重复调用是幂等的。
+    .env 的值优先于继承的系统环境变量——演示机上曾有残留的旧
+    ARK_API_KEY 用户级变量覆盖了比赛下发的 key，导致"API 不可用"。
+    项目内 .env 必须是唯一事实来源。重复调用是幂等的。
     """
     global _loaded
     target = path or (PROJECT_ROOT / ".env")
@@ -35,7 +36,6 @@ def load_env_file(path: Path | None = None) -> dict[str, str]:
         value = value.strip().strip('"').strip("'")
         if not key:
             continue
-        if key not in os.environ:
-            os.environ[key] = value
-            loaded[key] = value
+        os.environ[key] = value
+        loaded[key] = value
     return loaded

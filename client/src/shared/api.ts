@@ -43,7 +43,8 @@ import type {
   VerificationRunReport
 } from "@workbench/shared";
 
-const apiBase = "http://127.0.0.1:4317";
+// 前端统一走 Node 网关(:4000);网关将 /api/* 转发给 Agent 运行时。
+const apiBase = (import.meta.env?.VITE_API_BASE as string | undefined) ?? "http://127.0.0.1:4000";
 
 export type { CheckpointManifest } from "@workbench/shared";
 

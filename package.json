@@ -8,8 +8,9 @@
     "shared"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:server dev:client",
+    "dev": "npm-run-all --parallel dev:server dev:gateway dev:client",
     "dev:server": "python -m uvicorn server_py.app:app --host 127.0.0.1 --port 4317",
+    "dev:gateway": "node server_node/index.js",
     "dev:client": "npm --workspace client run dev",
     "build:shared": "npm --workspace @workbench/shared run build",
     "build": "npm --workspace shared run build && python -m compileall server_py && npm --workspace client run build",
