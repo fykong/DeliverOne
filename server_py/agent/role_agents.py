@@ -146,6 +146,7 @@ class AgentRoleSuite:
         plan: dict[str, Any],
         conversation_id: str | None = None,
         memory_snapshot: dict[str, Any] | None = None,
+        prefer_rules: bool = False,
     ) -> dict[str, Any]:
         fallback = self._record(
             "planning",
@@ -155,6 +156,10 @@ class AgentRoleSuite:
             recommendation="工具计划必须先读上下文、检查 diff；写入步骤必须有 checkpoint。",
             model_source="rules",
         )
+        if prefer_rules:
+            # 只读侦察计划无写入/命令风险，规则审计足够；跳过模型调用以降低时延与 token。
+            fallback["fallbackReason"] = "只读计划走规则快速审计（fast-path），未调用模型。"
+            return fallback
         return self._run_model_role(
             conversation_id=conversation_id,
             metric_source="role_reviewer",
@@ -179,6 +184,7 @@ class AgentRoleSuite:
         plan: dict[str, Any] | None,
         conversation_id: str | None = None,
         memory_snapshot: dict[str, Any] | None = None,
+        prefer_rules: bool = False,
     ) -> dict[str, Any]:
         verify_findings = self._verify_rules(plan)
         fallback = self._record(
@@ -190,6 +196,10 @@ class AgentRoleSuite:
             model_source="rules",
         )
         fallback.update(self._repair_policy_from_plan(plan, verify_findings))
+        if prefer_rules:
+            # 只读计划没有代码变更与验证命令证据要判读，规则验证足够。
+            fallback["fallbackReason"] = "只读计划走规则快速验证（fast-path），未调用模型。"
+            return fallback
         return self._run_model_role(
             conversation_id=conversation_id,
             metric_source="role_verifier",

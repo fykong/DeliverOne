@@ -427,7 +427,9 @@ class AgentOrchestrator:
                 repository=state.get("repository") or repository,
                 requirement=plan_requirement,
             )
-            review = self.roles.review_tool_plan(plan, conversation_id, memory_snapshot=review_memory)
+            review = self.roles.review_tool_plan(
+                plan, conversation_id, memory_snapshot=review_memory, prefer_rules=self._plan_is_read_only(plan)
+            )
             plan = self.tool_call_plans.append_audit(conversation_id, review, plan["id"])
             self.events.append(
                 conversation_id,
@@ -463,7 +465,9 @@ class AgentOrchestrator:
                 repository=plan.get("repository"),
                 requirement=plan.get("requirement"),
             )
-            verification = self.roles.verify_execution(plan, conversation_id, memory_snapshot=verification_memory)
+            verification = self.roles.verify_execution(
+                plan, conversation_id, memory_snapshot=verification_memory, prefer_rules=self._plan_is_read_only(plan)
+            )
             plan = self.tool_call_plans.append_audit(conversation_id, verification, plan["id"])
             self.events.append(
                 conversation_id,
@@ -655,6 +659,18 @@ class AgentOrchestrator:
                 titles.append(stage_id)
         return titles
 
+    def _plan_is_read_only(self, plan: dict[str, Any] | None) -> bool:
+        """只读计划(搜索/读取/diff/仓库画像)走规则快速审计,不动用模型。"""
+        if not plan:
+            return False
+        steps = [step for step in plan.get("steps", []) if isinstance(step, dict) and not step.get("disabled")]
+        if not steps:
+            return False
+        return all(
+            step.get("riskLevel") == "read" or step.get("toolId") == "github.inspect_repository"
+            for step in steps
+        )
+
     def _latest_blocked_role_audit(self, state: dict[str, Any], source: str) -> dict[str, Any] | None:
         for audit in reversed(state.get("audits", [])):
             if not isinstance(audit, dict):
@@ -723,7 +739,9 @@ class AgentOrchestrator:
             },
             audits=[draft["audit"]] if draft.get("audit") else [],
         )
-        review = self.roles.review_tool_plan(plan, conversation_id, memory_snapshot=memory_snapshot)
+        review = self.roles.review_tool_plan(
+            plan, conversation_id, memory_snapshot=memory_snapshot, prefer_rules=self._plan_is_read_only(plan)
+        )
         plan = self.tool_call_plans.append_audit(conversation_id, review, plan["id"])
         self.events.append(
             conversation_id,
@@ -866,7 +884,9 @@ class AgentOrchestrator:
             continuation_of_plan_id=str(source_plan.get("id") or ""),
             continuation_sequence=int(source_plan.get("continuationSequence") or 0) + 1,
         )
-        review = self.roles.review_tool_plan(plan, conversation_id, memory_snapshot=memory_snapshot)
+        review = self.roles.review_tool_plan(
+            plan, conversation_id, memory_snapshot=memory_snapshot, prefer_rules=self._plan_is_read_only(plan)
+        )
         plan = self.tool_call_plans.append_audit(conversation_id, review, plan["id"])
         self.events.append(
             conversation_id,
