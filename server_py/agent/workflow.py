@@ -51,6 +51,73 @@ class AgentWorkflow:
         self.events.append(conversation_id, "turn.completed", {"phase": turn["phase"]})
         return turn
 
+    def clarification_turn(
+        self,
+        conversation_id: str,
+        requirement: str,
+        repository: dict[str, Any] | None,
+        sandbox: dict[str, Any] | None,
+        clarification: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Clarifier 判定 blocked 时的短路 turn：不调用规划模型，直接把追问送回对话。"""
+        self.events.append(conversation_id, "turn.started", {"phase": "clarification"})
+        self.events.append(conversation_id, "user.message", {"content": requirement}, actor="user")
+        preflight = self.planning_agent.preflight.run(
+            conversation_id, requirement, repository, sandbox, include_search_intent=False
+        )
+        reply = self._format_clarification_reply(clarification)
+        steps = [
+            {
+                "id": "clarifier",
+                "title": "需求澄清",
+                "detail": clarification.get("summary") or "Clarifier 判断需求还不能直接进入方案。",
+                "status": "blocked",
+            }
+        ]
+        turn = {
+            "conversationId": conversation_id,
+            "phase": "clarification",
+            "preflight": preflight,
+            "model": preflight["model"],
+            "reply": reply,
+            "steps": steps,
+            "audits": [],
+            "blockedReason": clarification.get("summary") or "需求需要先澄清。",
+            "createdAt": now_iso(),
+        }
+        self.conversations.record_planning(conversation_id, requirement, turn, repository, sandbox)
+        self.memory.record_agent_turn(conversation_id, turn)
+        self.events.append(conversation_id, "agent.message", {"content": reply, "phase": "clarification"}, actor="agent")
+        self.events.append(conversation_id, "turn.completed", {"phase": "clarification"})
+        return turn
+
+    def _format_clarification_reply(self, clarification: dict[str, Any]) -> str:
+        lines: list[str] = ["这个需求还有几个关键点需要确认，补充后我会直接生成执行方案。"]
+        summary = str(clarification.get("summary") or "").strip()
+        if summary:
+            lines.extend(["", f"判断依据：{summary}"])
+
+        anti_patterns = clarification.get("antiPatternFindings")
+        if isinstance(anti_patterns, list) and anti_patterns:
+            lines.extend(["", "需求中可能存在的矛盾或风险："])
+            for item in anti_patterns[:3]:
+                detail = str(item.get("detail") or "").strip()
+                suggestion = str(item.get("suggestion") or "").strip()
+                if detail:
+                    lines.append(f"- {detail}" + (f"（建议：{suggestion}）" if suggestion else ""))
+
+        questions = [str(item).strip() for item in clarification.get("questions", []) if str(item).strip()]
+        if not questions:
+            ambiguities = clarification.get("ambiguities")
+            if isinstance(ambiguities, list):
+                questions = [str(item.get("question") or "").strip() for item in ambiguities if item.get("question")]
+        if questions:
+            lines.extend(["", "需要确认的问题："])
+            lines.extend(f"{index}. {question}" for index, question in enumerate(questions[:5], start=1))
+
+        lines.extend(["", "请直接回复补充信息（可以只回答编号），我会基于你的回答重新生成方案。"])
+        return "\n".join(lines)
+
     def confirm_plan(self, conversation_id: str) -> dict[str, Any]:
         state = self.conversations.get(conversation_id)
         previous_turn = state.get("turns", [])[-1] if state.get("turns") else None

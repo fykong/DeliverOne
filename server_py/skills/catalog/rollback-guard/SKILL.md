@@ -1,3 +1,15 @@
+---
+id: rollback-guard
+name: 回退保护
+kind: process
+description: 写文件前创建检查点，并支持任务文件回退或沙盒全仓回退。
+riskLevel: high
+requiresConfirmation: true
+alwaysOn: false
+triggers: [rollback, 回退, 还原, 撤销, 恢复, reset]
+tools: [code.git_diff, code.write_file, rollback.checkpoint, rollback.original]
+---
+
 # 回退保护 Skill
 
 ## 触发场景

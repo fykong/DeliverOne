@@ -134,7 +134,13 @@ class AgentOrchestrator:
                 },
                 actor="agent",
             )
-            turn = self.workflow.plan(conversation_id, next_requirement, repository, sandbox)
+            if clarification.get("verdict") == "blocked":
+                # 需求不可执行时短路：不调用规划模型，直接把追问作为 Agent 回复送回对话。
+                turn = self.workflow.clarification_turn(
+                    conversation_id, next_requirement, repository, sandbox, clarification
+                )
+            else:
+                turn = self.workflow.plan(conversation_id, next_requirement, repository, sandbox)
             turn.setdefault("audits", []).append(clarification)
             self.conversations.record_audit(conversation_id, clarification)
             return {"turn": turn}

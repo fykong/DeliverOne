@@ -37,14 +37,14 @@ PHASES = [
 
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "idle": {"repository_required", "sandbox_creating", "sandbox_ready", "planning", "failed"},
+    "idle": {"repository_required", "sandbox_creating", "sandbox_ready", "planning", "clarification", "failed"},
     "repository_required": {"sandbox_creating", "sandbox_ready", "failed"},
     "sandbox_creating": {"sandbox_ready", "repository_required", "failed"},
-    "sandbox_ready": {"preflight", "planning", "waiting_plan_confirmation", "waiting_tool_plan_confirmation", "failed"},
+    "sandbox_ready": {"preflight", "clarification", "planning", "waiting_plan_confirmation", "waiting_tool_plan_confirmation", "failed"},
     "preflight": {"clarification", "planning", "waiting_plan_confirmation", "failed"},
     "clarification": {"planning", "waiting_plan_confirmation", "failed"},
     "planning": {"clarification", "waiting_plan_confirmation", "failed"},
-    "waiting_plan_confirmation": {"planning", "waiting_sandbox", "ready_to_edit", "waiting_tool_plan_confirmation", "failed"},
+    "waiting_plan_confirmation": {"clarification", "planning", "waiting_sandbox", "ready_to_edit", "waiting_tool_plan_confirmation", "failed"},
     "waiting_sandbox": {"sandbox_creating", "sandbox_ready", "planning", "failed"},
     "ready_to_edit": {"waiting_tool_plan_confirmation", "checkpoint_before_write", "editing", "verifying", "delivery_ready", "failed"},
     "waiting_tool_plan_confirmation": {"tool_plan_approved", "tool_plan_running", "tool_plan_failed", "failed"},
@@ -52,7 +52,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "tool_plan_running": {"tool_plan_completed", "tool_plan_failed", "tool_plan_waiting_approval", "failed"},
     "tool_plan_waiting_approval": {"tool_plan_running", "tool_plan_completed", "tool_plan_failed", "failed"},
     "tool_plan_failed": {"waiting_tool_plan_confirmation", "planning", "failed"},
-    "tool_plan_completed": {"delivery_ready", "completed", "planning", "sandbox_ready", "failed"},
+    "tool_plan_completed": {"delivery_ready", "completed", "planning", "clarification", "waiting_plan_confirmation", "sandbox_ready", "failed"},
     "checkpoint_before_write": {"editing", "execution_blocked", "failed"},
     "editing": {"verifying", "reviewing", "delivery_ready", "execution_blocked", "failed"},
     "verifying": {"reviewing", "delivery_ready", "execution_blocked", "failed"},
@@ -60,8 +60,8 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "delivery_ready": {"completed", "planning", "sandbox_ready", "failed"},
     "execution_blocked": {"planning", "waiting_tool_plan_confirmation", "failed"},
     "execution_ready": {"tool_plan_running", "editing", "verifying", "failed"},
-    "completed": {"planning", "sandbox_ready"},
-    "failed": {"planning", "sandbox_ready", "repository_required"},
+    "completed": {"planning", "clarification", "sandbox_ready"},
+    "failed": {"planning", "clarification", "sandbox_ready", "repository_required"},
 }
 
 

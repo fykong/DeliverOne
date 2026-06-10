@@ -10,6 +10,7 @@ MODEL_PROVIDERS_PATH = CONFIG_ROOT / "model-providers.json"
 MODEL_SETTINGS_PATH = CONFIG_ROOT / "model-settings.json"
 AGENT_POLICY_PATH = CONFIG_ROOT / "agent-policy.json"
 AGENT_SKILLS_PATH = CONFIG_ROOT / "agent-skills.json"
+SKILLS_CATALOG_ROOT = PROJECT_ROOT / "server_py" / "skills" / "catalog"
 
 
 def safe_conversation_id(conversation_id: str) -> str:

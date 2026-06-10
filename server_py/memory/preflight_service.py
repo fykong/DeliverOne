@@ -27,9 +27,10 @@ class PreflightService:
         requirement: str | None,
         repository: dict[str, Any] | None,
         sandbox: dict[str, Any] | None,
+        include_search_intent: bool = True,
     ) -> dict[str, Any]:
         model = self.model_config.get_default_model()
-        matched_skills = self.skills.select(conversation_id, requirement or "")
+        matched_skills = self.skills.select(conversation_id, requirement or "", repository=repository)
         available_commands = repository.get("scripts", {}) if repository else {}
         required_confirmations: list[str] = []
 
@@ -48,7 +49,7 @@ class PreflightService:
                 memory_snapshot=initial_memory,
                 available_commands=available_commands,
             )
-            if self.search_intent
+            if self.search_intent and include_search_intent
             else {}
         )
         memory = self.memory.snapshot(conversation_id, repository, requirement, matched_skills, search_intent=search_intent, sandbox=sandbox)

@@ -67,7 +67,7 @@ class Services:
         self.planning_agent = PlanningAgent(self.preflight, self.client, self.auditor, self.metrics)
         self.executor_agent = ExecutorAgent(self.preflight, self.client)
         self.tool_plan_drafter = ToolPlanDrafter(self.client, self.auditor, self.metrics, self.models)
-        self.roles = AgentRoleSuite(self.client, self.metrics, self.models)
+        self.roles = AgentRoleSuite(self.client, self.metrics, self.models, self.skill_runtime)
         self.conversations = ConversationStore(self.state_machine)
         self.verification_runner = VerificationRunner(self.events, self.stack_detector)
         self.preview_smoke = PreviewSmokeTester(self.events)

@@ -1,3 +1,15 @@
+---
+id: repo-context
+name: 仓库上下文
+kind: process
+description: 识别项目结构、脚本、路由和模块边界，避免模型脱离真实代码猜测。
+riskLevel: low
+requiresConfirmation: false
+alwaysOn: true
+triggers: [仓库, 代码, 文件, 结构, 路由, 组件]
+tools: [code.search_files, code.read_file, code.git_diff]
+---
+
 # 仓库上下文 Skill
 
 ## 触发场景

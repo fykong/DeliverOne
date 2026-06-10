@@ -7,6 +7,18 @@ from server_py.core.json_io import now_iso
 from server_py.models.ark_client import ArkClient
 from server_py.models.model_config import ModelConfigService
 from server_py.observability.metrics import MetricStore
+from server_py.skills.runtime import SkillRuntime
+
+# Clarifier 逐项检查的歧义维度。需求模式 Skill 还会通过 clarifyChecklist
+# 注入模式专属的追问清单，两者一起构成澄清深度。
+CLARIFY_DIMENSIONS = [
+    "功能目标：用户最终要看到/得到什么？",
+    "位置载体：改动落在哪个页面、组件或接口上？",
+    "数据来源：展示或写入的数据从哪来，是否需要持久化？",
+    "边界范围：哪些东西明确不能动（不改后端/不改样式/不动现有行为）？",
+    "验收标准：怎么算做完？空值、零值、异常时的预期行为？",
+    "状态权限：未登录、无数据、旧数据场景下的行为？",
+]
 
 
 class AgentRoleSuite:
@@ -22,10 +34,12 @@ class AgentRoleSuite:
         client: ArkClient | None = None,
         metrics: MetricStore | None = None,
         models: ModelConfigService | None = None,
+        skills: SkillRuntime | None = None,
     ) -> None:
         self.client = client
         self.metrics = metrics
         self.models = models
+        self.skills = skills
 
     def clarify(
         self,
@@ -35,33 +49,96 @@ class AgentRoleSuite:
         conversation_id: str | None = None,
         memory_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        skill_guidance = self._clarify_skill_guidance(requirement, repository)
+        rule_findings = self._clarify_rules(requirement, repository, sandbox)
         fallback = self._record(
             "clarification",
             "Clarifier",
-            self._clarify_rules(requirement, repository, sandbox),
+            rule_findings,
             summary="已完成需求清晰度检查。",
             recommendation="如果存在阻断问题，需要先补齐仓库、沙盒或需求边界。",
             model_source="rules",
         )
+        fallback["questions"] = self._fallback_questions(rule_findings, skill_guidance)
         return self._run_model_role(
             conversation_id=conversation_id,
             metric_source="role_clarifier",
             stage="clarification",
             source="Clarifier",
             fallback=fallback,
-            task="判断用户需求是否足够明确。不明确时必须生成具体追问，并说明为什么不能进入工具计划。",
+            task=(
+                "你是需求澄清 Agent。逐条对照 clarifyDimensions 检查需求是否可执行；"
+                "如果命中了 skillGuidance 里的需求模式，还要逐条对照该模式的 clarifyChecklist 和 antiPatterns。"
+                "输出三类结果：(1) requirementDsl：把已经明确的部分结构化（goal、pages、dataChanges、apiChanges、uiChanges、"
+                "acceptanceCriteria、nonGoals、assumptions）；(2) ambiguities：每个未明确的维度生成一条，"
+                "包含 dimension、question（具体、可直接回答、能给选项就给选项）、why、blocking(true/false)；"
+                "(3) antiPatternFindings：自相矛盾、术语未定义、与仓库现状冲突的地方，给出 type、detail、suggestion。"
+                "存在 blocking 歧义或矛盾时 verdict 必须是 blocked，并把追问写进 questions；"
+                "需求完整时不要为了提问而提问，直接 pass。"
+            ),
             payload={
                 "requirement": requirement,
                 "repository": repository,
                 "sandbox": sandbox,
                 "memory": memory_snapshot,
+                "clarifyDimensions": CLARIFY_DIMENSIONS,
+                "skillGuidance": skill_guidance,
                 "hardRules": [
                     "缺少沙盒时不能进入代码写入链路。",
                     "需求过短或只说优化、调整、不好看时，需要追问目标页面、验收标准和不改动范围。",
+                    "自相矛盾的需求（如既要持久化又不许动后端）必须指出矛盾并给出可选路径，不允许自行选一条硬编。",
+                    "追问必须具体到可以直接回答，禁止『请提供更多信息』式的空泛问题。",
+                    "questions 数量不超过 5 个，按重要性排序，blocking 的在前。",
                     "只输出 JSON，不要输出 Markdown。",
                 ],
             },
         )
+
+    def _clarify_skill_guidance(
+        self,
+        requirement: str,
+        repository: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        if not self.skills:
+            return []
+        try:
+            matched = self.skills.peek(requirement, repository)
+        except Exception:
+            return []
+        guidance: list[dict[str, Any]] = []
+        for skill in matched:
+            checklist = skill.get("clarifyChecklist")
+            anti_patterns = skill.get("antiPatterns")
+            if not checklist and not anti_patterns:
+                continue
+            guidance.append(
+                {
+                    "skillId": skill.get("id"),
+                    "name": skill.get("name"),
+                    "kind": skill.get("kind"),
+                    "clarifyChecklist": checklist or [],
+                    "antiPatterns": anti_patterns or [],
+                }
+            )
+        return guidance
+
+    def _fallback_questions(
+        self,
+        findings: list[dict[str, Any]],
+        skill_guidance: list[dict[str, Any]],
+    ) -> list[str]:
+        # 模型不可用时的兜底：命中需求模式 Skill 的 clarifyChecklist 直接作为追问，
+        # 保证澄清环节在规则模式下仍然能产出具体问题。
+        if not findings:
+            return []
+        questions: list[str] = []
+        for guidance in skill_guidance:
+            for item in guidance.get("clarifyChecklist", []):
+                if item not in questions:
+                    questions.append(str(item))
+                if len(questions) >= 6:
+                    return questions
+        return questions
 
     def review_tool_plan(
         self,
@@ -183,6 +260,7 @@ class AgentRoleSuite:
                         "只输出 JSON，不要输出 Markdown，不要添加解释性前后缀。",
                         "JSON 顶层必须是对象。",
                         "字段：verdict=pass|warning|blocked，summary，findings，recommendation，questions。",
+                        "Clarifier 还要输出 requirementDsl（对象）、ambiguities（数组）、antiPatternFindings（数组）。",
                         "Verifier 失败时还要输出 failureClass、repairScope、repairPolicy。",
                         "findings 是数组，每项包含 id、title、detail、severity=info|warning|error。",
                         "repairPolicy 包含 failureClass、severity、autoAllowed、countsTowardCodeRepairLimit、requiresUserConfirmation、maxCodeRepairAttempts、maxTotalRepairSteps、reason。",
@@ -210,6 +288,27 @@ class AgentRoleSuite:
                             ],
                             "recommendation": "下一步建议。",
                             "questions": ["如果需要用户澄清，列出具体问题。"],
+                            "requirementDsl": {
+                                "goal": "一句话目标（Clarifier 专用）。",
+                                "pages": ["涉及页面/组件"],
+                                "dataChanges": ["数据/模型改动"],
+                                "apiChanges": ["接口改动"],
+                                "uiChanges": ["界面改动"],
+                                "acceptanceCriteria": ["验收标准"],
+                                "nonGoals": ["明确不做的事"],
+                                "assumptions": ["待用户确认的默认假设"],
+                            },
+                            "ambiguities": [
+                                {
+                                    "dimension": "数据来源",
+                                    "question": "阅读量从哪里来？A. 前端假数据 B. 后端新增字段",
+                                    "why": "决定纯前端还是跨栈改动。",
+                                    "blocking": True,
+                                }
+                            ],
+                            "antiPatternFindings": [
+                                {"type": "contradiction", "detail": "矛盾点描述", "suggestion": "给用户的可选路径"}
+                            ],
                             "failureClass": "code",
                             "repairScope": "test-failure",
                             "repairPolicy": {
@@ -262,7 +361,17 @@ class AgentRoleSuite:
     ) -> dict[str, Any]:
         findings = self._sanitize_findings(parsed.get("findings"))
         verdict = self._normalize_verdict(parsed.get("verdict"), findings)
+        clarifier_extras: dict[str, Any] = {}
+        if isinstance(parsed.get("requirementDsl"), dict):
+            clarifier_extras["requirementDsl"] = parsed["requirementDsl"]
+        if isinstance(parsed.get("ambiguities"), list):
+            clarifier_extras["ambiguities"] = [item for item in parsed["ambiguities"] if isinstance(item, dict)]
+            if any(item.get("blocking") for item in clarifier_extras["ambiguities"]) and verdict == "pass":
+                verdict = "blocked"
+        if isinstance(parsed.get("antiPatternFindings"), list):
+            clarifier_extras["antiPatternFindings"] = [item for item in parsed["antiPatternFindings"] if isinstance(item, dict)]
         return {
+            **clarifier_extras,
             "id": f"role_{source.lower()}_{now_iso()}",
             "stage": stage,
             "source": source,
@@ -359,6 +468,17 @@ class AgentRoleSuite:
             findings.append(self._finding("missing-sandbox", "缺少沙盒", "每个对话必须先创建独立沙盒，写入只能发生在沙盒内。", "error"))
         if any(word in text for word in ["优化", "调整", "改一下", "不好看"]) and not any(word in text for word in ["验收", "具体", "文件", "页面"]):
             findings.append(self._finding("ambiguous-change", "需求边界可能不清", "需求包含泛化修改词，建议确认目标页面、验收标准和不希望改动的范围。", "warning"))
+        no_backend = any(word in text for word in ["不要动后端", "不改后端", "不动后端", "只改前端", "纯前端"])
+        needs_persistence = any(word in text for word in ["保存", "持久", "数据库", "新字段", "加字段", "记录下来"])
+        if no_backend and needs_persistence:
+            findings.append(
+                self._finding(
+                    "contradictory-scope",
+                    "需求可能自相矛盾",
+                    "需求同时要求不动后端和持久化数据，两者冲突；需要用户在「前端假数据」和「允许改后端」之间选择。",
+                    "error",
+                )
+            )
         return findings
 
     def _review_rules(self, plan: dict[str, Any]) -> list[dict[str, Any]]:

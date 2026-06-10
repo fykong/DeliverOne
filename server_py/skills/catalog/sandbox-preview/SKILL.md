@@ -1,3 +1,15 @@
+---
+id: sandbox-preview
+name: 沙盒预览
+kind: process
+description: 在当前对话沙盒中启动预览命令，收集 stdout/stderr、端口和页面状态。
+riskLevel: medium
+requiresConfirmation: true
+alwaysOn: false
+triggers: [preview, 预览, 页面, 浏览器, 运行, dev server]
+tools: [command.run, preview.start]
+---
+
 # 沙盒预览 Skill
 
 ## 触发场景

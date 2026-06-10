@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from server_py.runtime.events import EventStore
-from server_py.skills.registry import SkillRegistry
+from server_py.skills.registry import PATTERN_FIELDS, SkillRegistry
 
 
 class SkillRuntime:
@@ -25,14 +25,26 @@ class SkillRuntime:
     def get(self, skill_id: str) -> dict[str, Any] | None:
         return self.registry.get(skill_id)
 
-    def select(self, conversation_id: str, requirement: str) -> list[dict[str, Any]]:
-        matched = self.registry.match(requirement)
+    def peek(self, requirement: str, repository: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """无副作用版本的 select：不写事件，供 Clarifier 等角色提前读取模式指引。"""
+        matched = self.registry.match(requirement, self._repository_context(repository))
+        return [self._runtime_pack(skill, requirement) for skill in matched]
+
+    def select(
+        self,
+        conversation_id: str,
+        requirement: str,
+        repository: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        context_text = self._repository_context(repository)
+        matched = self.registry.match(requirement, context_text)
         hydrated = [self._runtime_pack(skill, requirement) for skill in matched]
         self.events.append(
             conversation_id,
             "skill_runtime.selected",
             {
                 "skillIds": [skill.get("id") for skill in hydrated],
+                "kinds": {str(skill.get("id")): skill.get("kind") for skill in hydrated},
                 "count": len(hydrated),
                 "contentBudget": self.content_budget,
             },
@@ -40,32 +52,51 @@ class SkillRuntime:
         )
         return hydrated
 
+    def _repository_context(self, repository: dict[str, Any] | None) -> str:
+        if not isinstance(repository, dict):
+            return ""
+        parts = [
+            str(repository.get("name") or ""),
+            str(repository.get("source") or ""),
+            str(repository.get("description") or ""),
+        ]
+        scripts = repository.get("scripts")
+        if isinstance(scripts, dict):
+            parts.extend(str(key) for key in scripts)
+        return "\n".join(part for part in parts if part)
+
     def _runtime_pack(self, skill: dict[str, Any], requirement: str) -> dict[str, Any]:
         content = str(skill.get("content", ""))
         constraints = self._extract_constraints(content)
         artifacts = self._discover_artifacts(skill)
         reason = self._selection_reason(skill, requirement)
+        pattern = {field: skill[field] for field in PATTERN_FIELDS if skill.get(field)}
         return {
             **skill,
             "content": content[: self.content_budget],
             "runtime": {
                 "selectedReason": reason,
+                "kind": skill.get("kind", "process"),
                 "contentChars": min(len(content), self.content_budget),
                 "truncated": len(content) > self.content_budget,
                 "constraints": constraints,
+                "pattern": pattern,
                 "references": artifacts["references"],
                 "scripts": artifacts["scripts"],
             },
         }
 
     def _selection_reason(self, skill: dict[str, Any], requirement: str) -> str:
-        if skill.get("id") in {"agent-delivery-flow", "repo-context"}:
+        if skill.get("alwaysOn") or skill.get("id") in {"agent-delivery-flow", "repo-context"}:
             return "基础流程 Skill，默认启用。"
+        matched = skill.get("matchedTriggers")
+        if isinstance(matched, list) and matched:
+            return f"需求命中触发词：{', '.join(str(item) for item in matched[:5])}。"
         text = requirement.lower()
         triggers = [str(item) for item in skill.get("triggers", [])]
-        matched = [trigger for trigger in triggers if trigger.lower() in text]
-        if matched:
-            return f"需求命中触发词：{', '.join(matched[:5])}。"
+        hits = [trigger for trigger in triggers if trigger.lower() in text]
+        if hits:
+            return f"需求命中触发词：{', '.join(hits[:5])}。"
         return "由运行时保守选择。"
 
     def _extract_constraints(self, content: str) -> list[str]:

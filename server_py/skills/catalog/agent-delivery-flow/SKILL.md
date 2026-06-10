@@ -1,3 +1,15 @@
+---
+id: agent-delivery-flow
+name: 端到端交付流程
+kind: process
+description: 把需求从澄清、计划、确认、修改、验证、预览推进到交付，并把每一步写入事件流。
+riskLevel: medium
+requiresConfirmation: true
+alwaysOn: true
+triggers: [需求, 开发, 修改, 实现, 交付, 全栈, agent]
+tools: [code.search_files, code.read_file, code.write_file, code.apply_patch, command.run]
+---
+
 # 端到端交付流程 Skill
 
 ## 触发场景
