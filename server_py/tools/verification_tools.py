@@ -35,5 +35,6 @@ def create_verification_tools(runner: VerificationRunner) -> list[AgentTool]:
             "command",
             _verification_run_factory(runner),
             input_schema={"commands": "object", "timeoutSeconds": "number", "approved": "boolean"},
+            managed_command=True,
         )
     ]

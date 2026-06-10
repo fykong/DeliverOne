@@ -30,7 +30,10 @@ class DeliveryService:
         delivery_root = conversation_root(conversation_id) / "delivery"
         delivery_root.mkdir(parents=True, exist_ok=True)
 
-        status = self._git(repo, ["status", "--short"])
+        status = self._git(repo, ["status", "--short", "-uall"])
+        # intent-to-add 让未跟踪文件（含新建目录内文件）进入 git diff，
+        # 否则 changes.patch 对新增文件不完整。
+        self._git(repo, ["add", "-N", "-A"])
         diff_stat = self._git(repo, ["diff", "--stat"])
         patch = self._git(repo, ["diff", "--binary"])
         changed_files = self._changed_files(repo)
@@ -169,7 +172,9 @@ class DeliveryService:
         return result
 
     def _changed_files(self, repo: Path) -> list[dict[str, str]]:
-        status = self._git_raw(repo, ["status", "--porcelain"])
+        # -uall 展开未跟踪目录到具体文件，否则新建目录折叠成 "?? dir/"，
+        # apply_to_source 会把目录路径当文件而静默跳过。
+        status = self._git_raw(repo, ["status", "--porcelain", "-uall"])
         files: list[dict[str, str]] = []
         seen: set[str] = set()
         for line in status.splitlines():

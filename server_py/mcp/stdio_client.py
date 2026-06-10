@@ -158,9 +158,9 @@ class MCPStdioClient:
     def _write(self, proc: subprocess.Popen[bytes], message: dict[str, Any]) -> None:
         if not proc.stdin:
             raise RuntimeError("MCP stdio stdin 不可用。")
+        # MCP stdio 传输规范（2024-11-05）：每条消息是一行 JSON-RPC，以 \n 结尾。
         payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        header = f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii")
-        proc.stdin.write(header + payload)
+        proc.stdin.write(payload + b"\n")
         proc.stdin.flush()
 
     def _read_response(self, proc: subprocess.Popen[bytes], expected_id: int) -> dict[str, Any]:
@@ -172,22 +172,28 @@ class MCPStdioClient:
     def _read_message(self, proc: subprocess.Popen[bytes]) -> dict[str, Any]:
         if not proc.stdout:
             raise RuntimeError("MCP stdio stdout 不可用。")
-        content_length: int | None = None
         while True:
             line = proc.stdout.readline()
             if line == b"":
                 raise RuntimeError("MCP stdio 连接已关闭。")
             stripped = line.strip()
             if not stripped:
-                break
-            header = stripped.decode("ascii", errors="replace")
-            name, _, value = header.partition(":")
-            if name.lower() == "content-length":
-                content_length = int(value.strip())
-        if content_length is None:
-            raise RuntimeError("MCP stdio 响应缺少 Content-Length。")
-        payload = proc.stdout.read(content_length)
-        return json.loads(payload.decode("utf-8"))
+                continue
+            # 兼容旧版 LSP 风格帧（Content-Length 头 + 空行 + body），
+            # 标准换行分隔 JSON 也走同一循环。
+            if stripped.lower().startswith(b"content-length:"):
+                length = int(stripped.split(b":", 1)[1].strip())
+                while True:
+                    header_line = proc.stdout.readline()
+                    if header_line == b"" or not header_line.strip():
+                        break
+                payload = proc.stdout.read(length)
+                return json.loads(payload.decode("utf-8"))
+            try:
+                return json.loads(stripped.decode("utf-8"))
+            except json.JSONDecodeError:
+                # 非 JSON 输出（server 误写日志到 stdout），跳过继续读。
+                continue
 
     def _cleanup(
         self,

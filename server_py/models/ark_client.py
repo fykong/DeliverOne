@@ -9,6 +9,9 @@ from typing import Any
 
 
 class ArkClient:
+    # 429/5xx 与网络抖动重试：等待秒数即重试间隔，长度即最大重试次数。
+    RETRY_BACKOFF_SECONDS = (1.0, 3.0)
+
     def __init__(self) -> None:
         self.last_metrics: dict[str, Any] = {}
 
@@ -26,33 +29,59 @@ class ArkClient:
         api_key_env = model.get("apiKeyEnv") or "ARK_API_KEY"
         api_key = os.environ.get(api_key_env)
         if not api_key:
-            raise RuntimeError(f"缺少环境变量 {api_key_env}")
+            raise RuntimeError(f"缺少环境变量 {api_key_env}。请在项目根目录 .env 写入 {api_key_env}=你的key 后重启后端。")
 
         model_name = os.environ.get(model.get("modelEnv") or "") or model.get("model")
+        timeout_seconds = int(model.get("timeoutSeconds") or 60)
         body = json.dumps(
             {
                 "model": model_name,
                 "messages": messages,
-                "temperature": 0.2,
+                "temperature": float(model.get("temperature", 0.2)),
             }
         ).encode("utf-8")
-        request = urllib.request.Request(
-            endpoint,
-            data=body,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST",
-        )
 
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"模型调用失败：{error.code} {detail}") from error
+        payload = self._post_with_retry(endpoint, body, api_key, timeout_seconds)
 
-        reply = payload["choices"][0]["message"]["content"]
+        choices = payload.get("choices") if isinstance(payload, dict) else None
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            snippet = json.dumps(payload, ensure_ascii=False)[:400]
+            raise RuntimeError(f"模型响应缺少 choices 字段，无法解析回复。原始响应片段：{snippet}")
+        reply = str(((choices[0].get("message") or {}).get("content")) or "")
+        if not reply:
+            raise RuntimeError("模型返回了空回复，请稍后重试或检查模型配额。")
         self.last_metrics = self._metrics(started, messages, reply, payload.get("usage") or {})
         return reply
+
+    def _post_with_retry(self, endpoint: str, body: bytes, api_key: str, timeout_seconds: int) -> dict[str, Any]:
+        last_error: Exception | None = None
+        attempts = len(self.RETRY_BACKOFF_SECONDS) + 1
+        for attempt in range(attempts):
+            request = urllib.request.Request(
+                endpoint,
+                data=body,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")[:500]
+                last_error = RuntimeError(f"模型调用失败：HTTP {error.code}。{detail}")
+                # 401/403/400 等客户端错误重试无意义，直接报出。
+                if error.code not in {429, 500, 502, 503, 504}:
+                    raise last_error from error
+            except urllib.error.URLError as error:
+                reason = getattr(error, "reason", error)
+                last_error = RuntimeError(f"模型网络请求失败：{reason}。请检查网络连通性，稍后会自动重试。")
+            except TimeoutError as error:
+                last_error = RuntimeError(f"模型调用超过 {timeout_seconds}s 超时。建议错峰调用或稍后重试。")
+            except json.JSONDecodeError as error:
+                last_error = RuntimeError(f"模型响应不是合法 JSON：{error}")
+            if attempt < len(self.RETRY_BACKOFF_SECONDS):
+                time.sleep(self.RETRY_BACKOFF_SECONDS[attempt])
+        raise last_error if last_error else RuntimeError("模型调用失败：未知错误。")
 
     def _mock_reply(self, messages: list[dict[str, str]]) -> str:
         requirement = messages[-1]["content"] if messages else ""

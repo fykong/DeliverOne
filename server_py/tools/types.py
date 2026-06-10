@@ -25,6 +25,11 @@ class AgentTool:
     run: Callable[[Any, ToolContext], dict[str, Any]]
     requires_checkpoint: bool = False
     input_schema: dict[str, Any] | None = None
+    # 自管理命令工具：payload 不携带 shell 命令，由工具内部决定要执行什么
+    # （如 verification.run 按栈选择验证命令、browser.preview_smoke 只访问
+    # 本地预览端口）。权限层对这类工具走「确认后放行 / 否则审批」，
+    # 而不是因缺少 command 字段直接 forbid。
+    managed_command: bool = False
 
 
 class ToolRunner(Protocol):

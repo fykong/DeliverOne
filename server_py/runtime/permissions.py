@@ -161,6 +161,8 @@ class PermissionPolicy:
             return self._allow("checkpointed-write", "写入工具会先创建 checkpoint，再修改沙盒文件。", risk)
 
         if risk == "command":
+            if getattr(tool, "managed_command", False):
+                return self._assess_managed_command(payload, context, risk)
             return self._assess_command(payload, context, risk)
 
         if risk == "external":
@@ -174,6 +176,19 @@ class PermissionPolicy:
             return self._prompt("dangerous-needs-dedicated-approval", "高风险能力必须走专门授权或回退接口。", risk)
 
         return self._forbid("unknown-risk", f"未知风险等级：{risk}", risk)
+
+    def _assess_managed_command(self, payload: Any, context: ToolContext, risk: str) -> PermissionAssessment:
+        if context.user_initiated or self._payload_approved(payload):
+            return self._allow(
+                "managed-command-approved",
+                "自管理命令工具来自用户已确认的计划或显式授权，可在沙盒内执行。",
+                risk,
+            )
+        return self._prompt(
+            "managed-command-needs-approval",
+            "自管理命令工具需要用户确认后才能在沙盒内执行。",
+            risk,
+        )
 
     def _assess_command(self, payload: Any, context: ToolContext, risk: str) -> PermissionAssessment:
         command = self._command_text(payload)
@@ -193,6 +208,15 @@ class PermissionPolicy:
             return configured
 
         if self._is_trusted_command(command):
+            if self._contains_shell_metachars(command):
+                # command.run 用 shell 执行；带链式/重定向/子命令的输入即使
+                # 前缀可信也可能携带任意第二条命令，必须走人工审批。
+                return self._prompt(
+                    "trusted-prefix-with-metachars",
+                    "命令以可信前缀开头，但包含 &&、;、| 等 shell 连接符，需要用户确认完整命令。",
+                    risk,
+                    proposed_prefix_rule=self._prefix_rule(command),
+                )
             return self._allow("trusted-prefix", "命中可信命令前缀，可在沙盒内执行。", risk)
 
         if context.user_initiated or self._payload_approved(payload):
@@ -219,6 +243,12 @@ class PermissionPolicy:
             if not prefix or not self._matches_prefix(command, prefix):
                 continue
             if decision == "allow":
+                if self._contains_shell_metachars(command):
+                    return self._prompt(
+                        rule.get("id") or "config-prefix-allow",
+                        "命中持久化允许规则，但命令包含 shell 连接符，需要用户确认完整命令。",
+                        "command",
+                    )
                 return self._allow(rule.get("id") or "config-prefix-allow", rule.get("description") or "命中持久化允许规则。", "command")
             if decision == "prompt":
                 return self._prompt(rule.get("id") or "config-prefix-prompt", rule.get("description") or "命中持久化审批规则。", "command")
@@ -261,6 +291,11 @@ class PermissionPolicy:
 
     def _is_dangerous_command(self, command: str) -> bool:
         return any(re.search(pattern, command, flags=re.IGNORECASE) for pattern in self.dangerous_command_patterns)
+
+    _SHELL_METACHAR_PATTERN = re.compile(r"(&&|\|\||;|\||\$\(|`|>|<|\r|\n)")
+
+    def _contains_shell_metachars(self, command: str) -> bool:
+        return bool(self._SHELL_METACHAR_PATTERN.search(command))
 
     def _prefix_rule(self, command: str) -> list[str] | None:
         try:

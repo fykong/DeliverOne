@@ -114,7 +114,9 @@ class AgentOrchestrator:
             next_requirement = (requirement or "").strip()
             if not next_requirement:
                 raise RuntimeError("需求不能为空。")
-            memory_snapshot = self.memory.snapshot(conversation_id, repository=repository, requirement=next_requirement)
+            memory_snapshot = self.memory.snapshot(
+                conversation_id, repository=repository, requirement=next_requirement, sandbox=sandbox
+            )
             clarification = self.roles.clarify(
                 next_requirement,
                 repository,

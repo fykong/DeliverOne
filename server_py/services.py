@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from server_py.core.env import load_env_file
+
+# 在任何服务实例化之前加载 .env，保证 ARK_API_KEY 等配置可见。
+load_env_file()
+
 from server_py.agent.planning_agent import PlanningAgent
 from server_py.agent.role_agents import AgentRoleSuite
 from server_py.agent.executor_agent import ExecutorAgent
@@ -65,7 +70,7 @@ class Services:
         self.preflight = PreflightService(self.models, self.skill_runtime, self.memory, self.search_intent)
         self.auditor = PlanAuditor()
         self.planning_agent = PlanningAgent(self.preflight, self.client, self.auditor, self.metrics)
-        self.executor_agent = ExecutorAgent(self.preflight, self.client)
+        self.executor_agent = ExecutorAgent(self.preflight, self.client, self.metrics)
         self.tool_plan_drafter = ToolPlanDrafter(self.client, self.auditor, self.metrics, self.models)
         self.roles = AgentRoleSuite(self.client, self.metrics, self.models, self.skill_runtime)
         self.conversations = ConversationStore(self.state_machine)

@@ -6,12 +6,14 @@ from typing import Any
 from server_py.core.json_io import now_iso
 from server_py.memory.preflight_service import PreflightService
 from server_py.models.ark_client import ArkClient
+from server_py.observability.metrics import MetricStore
 
 
 class ExecutorAgent:
-    def __init__(self, preflight: PreflightService, client: ArkClient) -> None:
+    def __init__(self, preflight: PreflightService, client: ArkClient, metrics: MetricStore | None = None) -> None:
         self.preflight = preflight
         self.client = client
+        self.metrics = metrics
 
     def prepare(
         self,
@@ -40,6 +42,8 @@ class ExecutorAgent:
             return self._turn(conversation_id, "execution_blocked", preflight, reply, steps, preflight["model"].get("unavailableReason"))
 
         reply = self.client.complete(preflight["model"], self._messages(requirement, preflight, tools))
+        if self.metrics:
+            self.metrics.record_model_call(conversation_id, "executor", preflight["model"], self.client.last_metrics)
         return self._turn(
             conversation_id,
             "execution_ready",

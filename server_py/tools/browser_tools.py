@@ -43,5 +43,6 @@ def create_browser_tools(preview_smoke: PreviewSmokeTester) -> list[AgentTool]:
                 "requiredSelectors": "string[]",
                 "approved": "boolean",
             },
+            managed_command=True,
         )
     ]
