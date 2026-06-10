@@ -53,22 +53,31 @@ class GitSubmissionService:
         pr_title = (title or "").strip() or self._default_title(requirement)
 
         status = self._git(repo, ["status", "--porcelain", "-uall"])
-        if not status.strip():
-            raise RuntimeError("沙盒没有任何改动，无法生成提测分支。")
-
         current_branch = self._git(repo, ["branch", "--show-current"]).strip()
-        if current_branch != branch:
-            existing = self._git(repo, ["branch", "--list", branch]).strip()
-            if existing:
-                self._git_checked(repo, ["checkout", branch])
+        reuse_existing_commit = False
+        if not status.strip():
+            # 工作区干净:若已在提测分支且领先基线,视为重新提测(补推送/补建 PR)。
+            ahead = ""
+            if current_branch == branch and self._ref_exists(repo, base):
+                ahead = self._git(repo, ["rev-list", "--count", f"{base}..HEAD"]).strip()
+            if current_branch == branch and ahead and ahead != "0":
+                reuse_existing_commit = True
             else:
-                self._git_checked(repo, ["checkout", "-b", branch])
+                raise RuntimeError("沙盒没有任何改动，无法生成提测分支。")
 
-        self._git_checked(repo, ["add", "-A"])
-        commit_message = self._commit_message(pr_title, requirement, tool_plan)
-        commit_result = self._git_with_identity(repo, ["commit", "-m", commit_message])
-        if commit_result.returncode != 0 and "nothing to commit" not in (commit_result.stdout + commit_result.stderr):
-            raise RuntimeError(f"提测 commit 失败：{(commit_result.stderr or commit_result.stdout)[:500]}")
+        if not reuse_existing_commit:
+            if current_branch != branch:
+                existing = self._git(repo, ["branch", "--list", branch]).strip()
+                if existing:
+                    self._git_checked(repo, ["checkout", branch])
+                else:
+                    self._git_checked(repo, ["checkout", "-b", branch])
+
+            self._git_checked(repo, ["add", "-A"])
+            commit_message = self._commit_message(pr_title, requirement, tool_plan)
+            commit_result = self._git_with_identity(repo, ["commit", "-m", commit_message])
+            if commit_result.returncode != 0 and "nothing to commit" not in (commit_result.stdout + commit_result.stderr):
+                raise RuntimeError(f"提测 commit 失败：{(commit_result.stderr or commit_result.stdout)[:500]}")
         commit_sha = self._git(repo, ["rev-parse", "HEAD"]).strip()
 
         pr_body = self._pr_description(conversation_id, requirement, tool_plan, commit_sha, branch, base)
@@ -276,10 +285,32 @@ class GitSubmissionService:
             result["number"] = data.get("number")
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")[:500]
+            if error.code == 422 and "already exists" in detail:
+                existing = self._find_existing_pr(github_repo, token, branch)
+                if existing:
+                    result.update(ok=True, url=existing.get("html_url"), number=existing.get("number"), detail="该分支的 PR 已存在，已复用。")
+                    return result
             result["detail"] = f"HTTP {error.code}: {detail}"
         except urllib.error.URLError as error:
             result["detail"] = f"网络错误：{getattr(error, 'reason', error)}"
         return result
+
+    def _find_existing_pr(self, github_repo: str, token: str, branch: str) -> dict[str, Any] | None:
+        owner = github_repo.split("/")[0]
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{github_repo}/pulls?state=open&head={owner}:{branch}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "ai-delivery-workbench",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                items = json.loads(response.read().decode("utf-8"))
+            return items[0] if isinstance(items, list) and items else None
+        except Exception:
+            return None
 
     def _git(self, repo: Path, args: list[str]) -> str:
         result = self._git_raw(repo, args)

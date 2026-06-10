@@ -136,6 +136,14 @@ acceptance: [...]                # 验收断言
 - **代码级(默认)**:写入完成 + 真实 vitest 单测通过,推进循环才允许结束;托管交付前还会**重新跑一遍完整验证**(终检),杜绝旧报告误判。
 - **页面级(预览开启时)**:autopilot 自动运行浏览器断言(visual gate)——需求要求的可见文案/元素真的出现在页面上才算 pass,附截图与运行后 DOM 证据;无预览进程时如实标记 skipped 并说明判定依据。
 
+## 真实交付证据(MVP 链路 100% 闭环)
+
+- Conduit fork 子仓:https://github.com/fykong/conduit-realworld-example-app
+- **真实 PR**(由平台提测链路自动 push + 创建,非手工):
+  - [PR #1 文章最后编辑相对时间](https://github.com/fykong/conduit-realworld-example-app/pull/1) — 运行期新增 Skill 文件后一条指令托管产出,18/18 测试绿
+  - [PR #2 文章封面图字段(跨栈)](https://github.com/fykong/conduit-realworld-example-app/pull/2) — 迁移+模型+接口+表单+双展示位,12/12 测试绿
+- 链路:PM 自然语言 → 澄清(带选项,支持编号回答) → 方案 → 工具计划 → 沙盒写入(checkpoint) → 真实单测 → 终检 → 交付包 → **GitHub PR**
+
 ## 托管模式:一条指令直达提测
 
 勾选对话输入区的「托管模式」(或调用 `POST /api/agent/autopilot`),一条需求指令自动走完:
