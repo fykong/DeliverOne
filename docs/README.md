@@ -21,6 +21,7 @@
 15. `19-policy-observability.md`：审批矩阵、token、耗时和成本监控。
 16. `21-engineering-challenges.md`：关键工程难点与解决方案（提交材料）。
 17. `ai-usage.md`：AI 使用说明与过程留痕（提交材料）。
+18. `22-evaluation.md`：独立第三方验收评测（方法/记分板/缺陷/分层验证洞察）。
 18. `task-plan.md`：当前任务计划。
 
 项目总览、快速开始、架构图与合规声明见仓库根目录 `README.md`。

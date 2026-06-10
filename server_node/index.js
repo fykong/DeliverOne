@@ -8,7 +8,7 @@ import { ModelGateway } from "./model-gateway.js";
 import { RuntimeProxy } from "./proxy.js";
 
 /**
- * AI Delivery Workbench 的 Node 后端网关：
+ * DeliverOne 的 Node 后端网关：
  *   前端(5173) -> Node 网关(4000) -> Python Agent 运行时(4317)
  *
  * 真实职责：

@@ -1,4 +1,4 @@
-# AI Delivery Workbench
+# DeliverOne
 
 一个可以端到端交付全栈项目的"超级个体"平台:产品经理用自然语言提需求,系统在独立沙盒中完成 **需求澄清 → 方案生成 → 工具计划 → 用户确认 → 代码修改 → 自动验证 → 浏览器预览 → 交付/提测(PR) → 可回退** 的完整闭环。实验田为开源全栈博客 [Conduit](https://github.com/TonyMckes/conduit-realworld-example-app)(React + Express + Sequelize monorepo)。
 
@@ -139,10 +139,11 @@ acceptance: [...]                # 验收断言
 ## 真实交付证据(MVP 链路 100% 闭环)
 
 - Conduit fork 子仓:https://github.com/fykong/conduit-realworld-example-app
-- **真实 PR**(由平台提测链路自动 push + 创建,非手工):
-  - [PR #1 文章最后编辑相对时间](https://github.com/fykong/conduit-realworld-example-app/pull/1) — 运行期新增 Skill 文件后一条指令托管产出,18/18 测试绿
-  - [PR #2 文章封面图字段(跨栈)](https://github.com/fykong/conduit-realworld-example-app/pull/2) — 迁移+模型+接口+表单+双展示位,12/12 测试绿
+- **真实 PR**(由平台提测链路自动 push + 创建,非手工;经独立验收评测后净化重发):
+  - [PR #1 文章最后编辑相对时间](https://github.com/fykong/conduit-realworld-example-app/pull/1) — 运行期新增 Skill 文件后一条指令托管产出
+  - [PR #3 文章字数统计与预计阅读时长](https://github.com/fykong/conduit-realworld-example-app/pull/3) — 纯前端工具函数 + 单测
 - 链路:PM 自然语言 → 澄清(带选项,支持编号回答) → 方案 → 工具计划 → 沙盒写入(checkpoint) → 真实单测 → 终检 → 交付包 → **GitHub PR**
+- **独立验收评测**(详见 [docs/22-evaluation.md](docs/22-evaluation.md)):4 条交付经无关模型逐条审判——2 条 accept-with-defects、2 条 reject(模型未完成 UI 接线)。**不隐藏 reject**:它证明评测有牙,定位出"测试级验证漏接线、需页面级 visual gate 兜底"的分层验证洞察,并修复了一处系统级依赖污染。
 
 ## 托管模式:一条指令直达提测
 

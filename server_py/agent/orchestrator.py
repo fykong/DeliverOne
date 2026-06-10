@@ -405,7 +405,7 @@ class AgentOrchestrator:
 
     def _autopilot_title(self, requirement: str) -> str:
         first_line = (requirement.splitlines() or [""])[0].strip()
-        return first_line[:72] or "AI Delivery Workbench 托管交付"
+        return first_line[:72] or "DeliverOne 托管交付"
 
     def _dispatch(
         self,

@@ -11,7 +11,7 @@ from server_py.core.json_io import now_iso
 from server_py.services import services
 from server_py.tools.types import ToolContext
 
-app = FastAPI(title="AI Delivery Workbench Agent Runtime")
+app = FastAPI(title="DeliverOne Agent Runtime")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -237,7 +237,7 @@ class MemoryPatchApplyBody(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    return {"ok": True, "name": "AI Delivery Workbench", "runtime": "python-agent", "time": now_iso()}
+    return {"ok": True, "name": "DeliverOne", "runtime": "python-agent", "time": now_iso()}
 
 
 @app.get("/api/models")

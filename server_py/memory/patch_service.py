@@ -93,7 +93,7 @@ class MemoryPatchService:
             {
                 "role": "system",
                 "content": (
-                    "你是 AI Delivery Workbench 的 Memory Curator。"
+                    "你是 DeliverOne 的 Memory Curator。"
                     "请只输出 JSON，不要输出 Markdown。"
                     "任务是从当前任务账本、召回记忆和长期记忆中，提出应该沉淀为长期记忆的草案。"
                     "不要重复已有长期记忆；不要写空泛总结；每条都必须能帮助后续 Agent 更稳定执行。"

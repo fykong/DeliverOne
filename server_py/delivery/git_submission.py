@@ -73,6 +73,7 @@ class GitSubmissionService:
                 else:
                     self._git_checked(repo, ["checkout", "-b", branch])
 
+            self._sanitize_dependency_pollution(repo, base)
             self._git_checked(repo, ["add", "-A"])
             commit_message = self._commit_message(pr_title, requirement, tool_plan)
             commit_result = self._git_with_identity(repo, ["commit", "-m", commit_message])
@@ -145,13 +146,50 @@ class GitSubmissionService:
         record = read_json(conversation_root(conversation_id) / "delivery" / "submission.json", None)
         return record if isinstance(record, dict) else None
 
+    def _sanitize_dependency_pollution(self, repo: Path, base: str) -> None:
+        """提测前清理 package.json / lock 的非需求污染。
+
+        沙盒嵌套在工作台(npm workspace)内,在沙盒里 npm install 会把工作台
+        自身作为 file: 依赖注入 package.json;手动安装的测试依赖(jsdom 等)
+        同样不属于需求交付。需求实现只新增源码、从不改依赖清单,因此把这两个
+        文件整体还原到基线,确保交付的 PR 在任意环境可安装、diff 只含需求改动。
+        """
+        if not self._ref_exists(repo, base):
+            # 没有基线可还原时,至少结构化剔除指向工作台自身的自引用依赖。
+            self._strip_self_dependency(repo / "package.json")
+            return
+        for name in ("package.json", "package-lock.json", "backend/package.json", "frontend/package.json"):
+            target = repo / name
+            if not target.exists():
+                continue
+            result = self._git_raw(repo, ["checkout", base, "--", name])
+            if result.returncode != 0:
+                # 基线无此文件或还原失败时,退回结构化剔除自引用。
+                self._strip_self_dependency(target)
+
+    def _strip_self_dependency(self, package_json: Path) -> None:
+        try:
+            data = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        changed = False
+        for section in ("dependencies", "devDependencies", "optionalDependencies"):
+            block = data.get(section)
+            if not isinstance(block, dict):
+                continue
+            for key in [k for k, v in block.items() if "ai-delivery-workbench" in str(k) or "ai-delivery-workbench" in str(v) or (isinstance(v, str) and v.startswith("file:") and ".." in v)]:
+                block.pop(key, None)
+                changed = True
+        if changed:
+            package_json.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
     def _branch_name(self, conversation_id: str) -> str:
         safe = re.sub(r"[^a-zA-Z0-9_-]", "-", conversation_id)[:48].strip("-")
         return f"workbench/{safe or 'delivery'}"
 
     def _default_title(self, requirement: str) -> str:
         first_line = (requirement.splitlines() or [""])[0].strip()
-        return (first_line[:72] or "AI Delivery Workbench 提测变更")
+        return (first_line[:72] or "DeliverOne 提测变更")
 
     def _detect_base_branch(self, repo: Path) -> str:
         head = self._git(repo, ["symbolic-ref", "refs/remotes/origin/HEAD"]).strip()
@@ -175,7 +213,7 @@ class GitSubmissionService:
             steps = [step for step in tool_plan.get("steps", []) if isinstance(step, dict)]
             done = sum(1 for step in steps if step.get("status") == "completed")
             lines.append(f"工具计划 {tool_plan.get('id')}：{done}/{len(steps)} 步完成。")
-        lines.append("由 AI Delivery Workbench 在对话沙盒中生成。")
+        lines.append("由 DeliverOne 在对话沙盒中生成。")
         return "\n".join(lines)
 
     def _pr_description(
@@ -223,7 +261,7 @@ class GitSubmissionService:
                 "",
                 "- 事件流、工具计划、checkpoint、diff、验证报告与预览截图见会话工作区 delivery/ 目录。",
                 "",
-                "> 本 PR 由 AI Delivery Workbench 生成，所有改动在对话沙盒中完成并经人工确认。",
+                "> 本 PR 由 DeliverOne 生成，所有改动在对话沙盒中完成并经人工确认。",
             ]
         )
         return "\n".join(lines) + "\n"
@@ -325,7 +363,7 @@ class GitSubmissionService:
     def _git_with_identity(self, repo: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
         identity = [
             "-c",
-            "user.name=AI Delivery Workbench",
+            "user.name=DeliverOne",
             "-c",
             "user.email=workbench@local",
         ]
