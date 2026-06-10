@@ -2,6 +2,7 @@ import { FileText, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { CheckpointManifest } from "../../shared/api";
 import { getRollbackReport, getRollbackReports } from "../../shared/api";
+import { useConfirm } from "../../shared/ConfirmDialog";
 import type { SandboxRuntimeSnapshot } from "@workbench/shared";
 import type { RollbackDiffSnapshot, RollbackReportDetail, RollbackReportSummary } from "@workbench/shared";
 import { RollbackConfirmationView } from "./RollbackConfirmationView";
@@ -17,6 +18,7 @@ interface RollbackPanelProps {
 }
 
 export function RollbackPanel({ conversationId, checkpoints, sandboxRuntime, isRunning, onRollbackCheckpoint, onRollbackOriginal }: RollbackPanelProps) {
+  const confirm = useConfirm();
   const report = sandboxRuntime?.rollback.report ?? null;
   const [reports, setReports] = useState<RollbackReportSummary[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
@@ -79,9 +81,12 @@ export function RollbackPanel({ conversationId, checkpoints, sandboxRuntime, isR
               type="button"
               disabled={isRunning}
               onClick={() => {
-                if (window.confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`)) {
-                  onRollbackCheckpoint(checkpoint.id);
-                }
+                void confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`, {
+                  confirmLabel: "回退",
+                  cancelLabel: "取消",
+                }).then((ok) => {
+                  if (ok) onRollbackCheckpoint(checkpoint.id);
+                });
               }}
             >
               回退

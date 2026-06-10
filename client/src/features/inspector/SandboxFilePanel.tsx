@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { FileCode2, FolderTree, GitCompareArrows, RotateCcw } from "lucide-react";
 import type { CheckpointManifest, SandboxDiffFile, SandboxDiffResponse, SandboxFileContent, SandboxTreeItem } from "@workbench/shared";
+import { useConfirm } from "../../shared/ConfirmDialog";
 import { SplitDiffView } from "./SplitDiffView";
 
 type FilePanelTab = "files" | "changes" | "rollback";
@@ -59,6 +60,7 @@ export function SandboxFilePanel({
   onRollbackCheckpointFile,
   onRollbackCheckpointHunk
 }: SandboxFilePanelProps) {
+  const confirm = useConfirm();
   const [tab, setTab] = useState<FilePanelTab>("files");
   const [checkpointFilePath, setCheckpointFilePath] = useState<string | null>(null);
   const changedByPath = useMemo(() => new Map((currentDiff?.files ?? []).map((item) => [item.path, item])), [currentDiff]);
@@ -155,9 +157,12 @@ export function SandboxFilePanel({
                     type="button"
                     disabled={isRunning}
                     onClick={() => {
-                      if (window.confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`)) {
-                        onRollbackCheckpoint(checkpoint.id);
-                      }
+                      void confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`, {
+                        confirmLabel: "回退",
+                        cancelLabel: "取消",
+                      }).then((ok) => {
+                        if (ok) onRollbackCheckpoint(checkpoint.id);
+                      });
                     }}
                   >
                     回退
@@ -184,9 +189,12 @@ export function SandboxFilePanel({
                       type="button"
                       disabled={isRunning}
                       onClick={() => {
-                        if (window.confirm(`确认回退文件「${displayedCheckpointFile.path}」？这会把该沙盒文件还原到检查点时的状态，无法直接撤销。`)) {
-                          onRollbackCheckpointFile(selectedCheckpointId, displayedCheckpointFile.path);
-                        }
+                        void confirm(`确认回退文件「${displayedCheckpointFile.path}」？这会把该沙盒文件还原到检查点时的状态，无法直接撤销。`, {
+                          confirmLabel: "回退此文件",
+                          cancelLabel: "取消",
+                        }).then((ok) => {
+                          if (ok) onRollbackCheckpointFile(selectedCheckpointId, displayedCheckpointFile.path);
+                        });
                       }}
                     >
                       回退此文件

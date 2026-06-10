@@ -2,6 +2,7 @@ import { Archive, GitBranch, GitPullRequest, Image as ImageIcon, PackageCheck } 
 import { useEffect, useState } from "react";
 import type { DeliveryPreview, DeliveryReport, DeliverySubmission } from "@workbench/shared";
 import { getDeliverySubmission, getPreviewScreenshotUrl, submitDelivery } from "../../shared/api";
+import { useConfirm } from "../../shared/ConfirmDialog";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { RollbackConfirmationView } from "./RollbackConfirmationView";
 import { UnifiedDiffViewer } from "./UnifiedDiffViewer";
@@ -24,6 +25,7 @@ function submissionModeText(mode: DeliverySubmission["mode"]) {
 }
 
 export function DeliveryPanel({ conversationId, deliveryReport, deliveryPreview, isRunning, onGenerateDeliveryPackage, onApplyDeliveryToSource }: DeliveryPanelProps) {
+  const confirm = useConfirm();
   const markdown = deliveryPreview?.markdown;
   const patch = deliveryPreview?.patch;
   const [submission, setSubmission] = useState<DeliverySubmission | null>(null);
@@ -48,7 +50,10 @@ export function DeliveryPanel({ conversationId, deliveryReport, deliveryPreview,
 
   async function handleSubmitDelivery() {
     if (isSubmitting) return;
-    const confirmed = window.confirm("确认基于当前沙盒改动生成提测分支并尝试创建 PR？commit 只发生在沙盒仓库，原始仓库不受影响。");
+    const confirmed = await confirm("确认基于当前沙盒改动生成提测分支并尝试创建 PR？commit 只发生在沙盒仓库，原始仓库不受影响。", {
+      confirmLabel: "生成 PR",
+      cancelLabel: "取消",
+    });
     if (!confirmed) return;
     setIsSubmitting(true);
     setSubmissionError(null);

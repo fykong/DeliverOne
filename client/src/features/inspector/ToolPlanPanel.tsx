@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Ban, CheckCircle2, FileCode2, GitCompareArrows, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { ToolCallPlan, ToolCallPlanStep } from "@workbench/shared";
+import { useConfirm } from "../../shared/ConfirmDialog";
 import { toolPlanStatusLabels } from "./constants";
 
 type ToolStepEditOperation = "skip_step" | "restore_step" | "update_step" | "move_step";
@@ -34,6 +35,7 @@ export function ToolPlanPanel({
   onOpenCheckpointDiff,
   onRollbackCheckpoint
 }: ToolPlanPanelProps) {
+  const confirm = useConfirm();
   const reviewerAudit = [...(toolPlan?.audits ?? [])].reverse().find((audit) => audit.source === "Reviewer") ?? null;
   const verifierAudit = [...(toolPlan?.audits ?? [])].reverse().find((audit) => audit.source === "Verifier") ?? null;
   const reviewerBlocked = reviewerAudit?.verdict === "blocked";
@@ -238,9 +240,12 @@ export function ToolPlanPanel({
                   type="button"
                   disabled={isRunning}
                   onClick={() => {
-                    if (window.confirm(`确认回退步骤「${step.title}」对应的检查点？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`)) {
-                      onRollbackCheckpoint(step.checkpointId!);
-                    }
+                    void confirm(`确认回退步骤「${step.title}」对应的检查点？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`, {
+                      confirmLabel: "回退",
+                      cancelLabel: "取消",
+                    }).then((ok) => {
+                      if (ok) onRollbackCheckpoint(step.checkpointId!);
+                    });
                   }}
                 >
                   <RotateCcw size={13} />

@@ -87,6 +87,7 @@ import {
   validateMCPConfig
 } from "../../shared/api";
 import type { ConversationMessage } from "../chat/types";
+import { useConfirm } from "../../shared/ConfirmDialog";
 
 const conduitRepoUrl = "https://github.com/TonyMckes/conduit-realworld-example-app";
 const defaultPreviewCommand = "npm run dev -- --host 127.0.0.1 --port 3000";
@@ -290,6 +291,7 @@ function formatAutopilotSummary(summary: AutopilotSummary | null | undefined) {
 }
 
 export function useWorkbench() {
+  const confirm = useConfirm();
   const [conversationId, setConversationId] = useState(createConversationId);
   const [conversations, setConversations] = useState<AgentConversationSummary[]>([]);
   const [models, setModels] = useState<ModelSettings | null>(null);
@@ -538,7 +540,7 @@ export function useWorkbench() {
 
   async function removeConversation(targetConversationId: string) {
     if (isBusy) return;
-    const confirmed = window.confirm("确认删除这个对话及其沙盒工作区？");
+    const confirmed = await confirm("确认删除这个对话及其沙盒工作区？", { confirmLabel: "删除", cancelLabel: "保留" });
     if (!confirmed) return;
     setIsRunning(true);
     try {
@@ -1095,7 +1097,7 @@ export function useWorkbench() {
 
   async function handleRollbackOriginal() {
     if (isBusy) return;
-    const confirmed = window.confirm("确认把当前对话沙盒回到原始 HEAD？这会丢弃沙盒内所有未提交改动。");
+    const confirmed = await confirm("确认把当前对话沙盒回到原始 HEAD？这会丢弃沙盒内所有未提交改动。", { confirmLabel: "回退", cancelLabel: "取消" });
     if (!confirmed) return;
     setIsRunning(true);
     try {
@@ -1174,7 +1176,7 @@ export function useWorkbench() {
 
   async function handleApplyDeliveryToSource() {
     if (isBusy || !deliveryReport) return;
-    const confirmed = window.confirm("确认把当前沙盒交付包应用回原始本地仓库？系统会先备份被覆盖文件。");
+    const confirmed = await confirm("确认把当前沙盒交付包应用回原始本地仓库？系统会先备份被覆盖文件。", { confirmLabel: "应用", cancelLabel: "取消" });
     if (!confirmed) return;
     setIsRunning(true);
     try {
@@ -1329,7 +1331,7 @@ export function useWorkbench() {
 
   async function handleForgetMemory(itemId: string) {
     if (isBusy) return;
-    const confirmed = window.confirm("确认遗忘这条长期记忆？它不会再进入后续上下文召回。");
+    const confirmed = await confirm("确认遗忘这条长期记忆？它不会再进入后续上下文召回。", { confirmLabel: "遗忘", cancelLabel: "保留" });
     if (!confirmed) return;
     setIsRunning(true);
     try {

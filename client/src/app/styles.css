@@ -40,6 +40,61 @@ button:disabled {
   opacity: 0.58;
 }
 
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 23, 19, 0.42);
+}
+
+.confirmDialog {
+  width: min(420px, calc(100vw - 48px));
+  background: #fbfaf6;
+  border: 1px solid #d6d3c6;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(20, 23, 19, 0.28);
+  padding: 22px 22px 18px;
+}
+
+.confirmMessage {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #20231f;
+  white-space: pre-wrap;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirmActions button {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid #c9c6b8;
+  font-size: 13px;
+}
+
+.confirmCancel {
+  background: #f0eee6;
+  color: #4a4d44;
+}
+
+.confirmAccept {
+  background: #2f6f4f;
+  border-color: #2f6f4f;
+  color: #fff;
+}
+
+.confirmAccept:hover {
+  background: #285f44;
+}
+
 .shell {
   display: grid;
   grid-template-columns: 260px minmax(420px, 1fr) 340px;
