@@ -408,6 +408,7 @@ def agent_autopilot(body: AutopilotBody) -> dict[str, Any]:
             delivery=services.delivery,
             submission=services.git_submission,
             verification_runner=services.verification_runner,
+            preview_smoke=services.preview_smoke,
         )
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

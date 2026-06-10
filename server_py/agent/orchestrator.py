@@ -111,6 +111,7 @@ class AgentOrchestrator:
         delivery: Any = None,
         submission: Any = None,
         verification_runner: Any = None,
+        preview_smoke: Any = None,
     ) -> dict[str, Any]:
         """托管模式：一条需求指令自动推进到提测，免去逐步人工确认。
 
@@ -277,6 +278,13 @@ class AgentOrchestrator:
             except Exception as error:
                 summary["reason"] += f"（交付终检执行失败：{error}）"
 
+        # 页面级终检（visual gate）：预览进程在跑时，用浏览器断言确认页面真的
+        # 出现了需求要求的可见内容（文案/选择器），截图与 DOM 留证。
+        # 结果记录进 summary 与事件流；没有预览进程时如实标记 skipped——
+        # 完成判定不只靠"代码能跑通"，能看页面时就看页面。
+        if preview_smoke is not None:
+            summary["visualGate"] = self._run_visual_gate(conversation_id, requirement, preview_smoke)
+
         # 验证绿后自动产出交付物：交付包 + 提测分支（PR-ready / GitHub PR）。
         if delivery is not None and submission is not None:
             try:
@@ -309,6 +317,49 @@ class AgentOrchestrator:
                 summary["reason"] += f"（交付产出失败：{error}）"
 
         return finish(self._bundle(conversation_id))
+
+    def _run_visual_gate(self, conversation_id: str, requirement: str, preview_smoke: Any) -> dict[str, Any]:
+        running = [
+            process
+            for process in self.processes.list()
+            if process.get("conversationId") == conversation_id and process.get("status") == "running"
+        ]
+        if not running:
+            return {
+                "status": "skipped",
+                "reason": "当前没有运行中的沙盒预览进程；完成判定基于真实单测与交付终检。先启动预览再跑任务即可启用页面级确认。",
+            }
+        try:
+            from server_py.agent.preview_assertions import build_preview_assertions
+
+            hints = build_preview_assertions(requirement, None)
+            ports = running[0].get("ports") or [3000]
+            self.events.append(conversation_id, "autopilot.visual_gate.begin", {"port": ports[0]}, actor="autopilot")
+            report = preview_smoke.run(
+                conversation_id,
+                int(ports[0]),
+                "/",
+                timeout_seconds=45,
+                expected_texts=[str(item) for item in hints.get("expectedTexts", [])],
+                required_selectors=[str(item) for item in hints.get("requiredSelectors", [])],
+            )
+            assertions = report.get("assertions") if isinstance(report.get("assertions"), dict) else {}
+            gate = {
+                "status": "pass" if report.get("ok") else "fail",
+                "summary": str(report.get("summary"))[:300],
+                "assertions": assertions,
+                "screenshotPath": (report.get("screenshot") or {}).get("path") if isinstance(report.get("screenshot"), dict) else None,
+                "reportPath": report.get("reportPath"),
+            }
+            self.events.append(
+                conversation_id,
+                "autopilot.visual_gate.end",
+                {"status": gate["status"], "summary": gate["summary"]},
+                actor="autopilot",
+            )
+            return gate
+        except Exception as error:
+            return {"status": "error", "reason": f"页面级终检执行失败：{error}"}
 
     def _autopilot_title(self, requirement: str) -> str:
         first_line = (requirement.splitlines() or [""])[0].strip()
