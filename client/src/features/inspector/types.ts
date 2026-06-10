@@ -13,6 +13,8 @@ import type {
   MemorySnapshot,
   PreflightResult,
   PreviewSmokeReport,
+  RepositoryStatus,
+  SandboxStatus,
   RuntimeMetricsResponse,
   RuntimeSnapshot,
   SandboxRuntimeSnapshot,
@@ -29,6 +31,8 @@ import type { CheckpointManifest } from "../../shared/api";
 export interface InspectorProps {
   conversationId: string;
   preflight: PreflightResult | null;
+  repository: RepositoryStatus | null;
+  sandbox: SandboxStatus | null;
   agentTurn: AgentTurnResult | null;
   toolPlan: ToolCallPlan | null;
   checkpoints: CheckpointManifest[];

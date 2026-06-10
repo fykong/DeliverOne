@@ -20,6 +20,8 @@ import type { InspectorProps } from "./types";
 export function Inspector({
   conversationId,
   preflight,
+  repository,
+  sandbox,
   agentTurn,
   toolPlan,
   checkpoints,
@@ -84,7 +86,7 @@ export function Inspector({
   onOpenDiffFile,
   onOpenCheckpointDiff
 }: InspectorProps) {
-  const currentPhase = agentTurn ? phaseLabels[agentTurn.phase] : preflight ? "仓库已接入" : "等待仓库";
+  const currentPhase = agentTurn ? phaseLabels[agentTurn.phase] : preflight || repository ? "仓库已接入" : "等待仓库";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
   const tabs: { key: TabKey; label: string; badge?: number | string }[] = [
@@ -128,7 +130,7 @@ export function Inspector({
       <div className="inspectorTabBody">
         {activeTab === "overview" && (
           <>
-            <CurrentContextPanel preflight={preflight} agentTurn={agentTurn} skills={skills} isRunning={isRunning} onConfirmPlan={onConfirmPlan} />
+            <CurrentContextPanel preflight={preflight} repository={repository} sandbox={sandbox} agentTurn={agentTurn} skills={skills} isRunning={isRunning} onConfirmPlan={onConfirmPlan} />
             <RuntimePanel snapshot={runtimeSnapshot} isRunning={isRunning} onEditTaskState={onEditTaskState} />
             <SandboxRuntimePanel snapshot={sandboxRuntime} />
           </>

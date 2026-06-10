@@ -1,18 +1,22 @@
 import { CheckCircle2, ShieldCheck } from "lucide-react";
-import type { AgentTurnResult, PreflightResult, SkillSummary } from "@workbench/shared";
+import type { AgentTurnResult, PreflightResult, RepositoryStatus, SandboxStatus, SkillSummary } from "@workbench/shared";
 import { phaseLabels } from "./constants";
 
 interface CurrentContextPanelProps {
   preflight: PreflightResult | null;
+  repository: RepositoryStatus | null;
+  sandbox: SandboxStatus | null;
   agentTurn: AgentTurnResult | null;
   skills: SkillSummary[];
   isRunning: boolean;
   onConfirmPlan: () => void;
 }
 
-export function CurrentContextPanel({ preflight, agentTurn, skills, isRunning, onConfirmPlan }: CurrentContextPanelProps) {
+export function CurrentContextPanel({ preflight, repository, sandbox, agentTurn, skills, isRunning, onConfirmPlan }: CurrentContextPanelProps) {
   const canConfirmPlan = agentTurn?.phase === "waiting_plan_confirmation";
-  const currentPhase = agentTurn ? phaseLabels[agentTurn.phase] : preflight ? "仓库已接入" : "等待仓库";
+  const repo = preflight?.repository ?? repository;
+  const box = preflight?.sandbox ?? sandbox;
+  const currentPhase = agentTurn ? phaseLabels[agentTurn.phase] : repo ? "仓库已接入" : "等待仓库";
 
   return (
     <section className="panel">
@@ -27,11 +31,11 @@ export function CurrentContextPanel({ preflight, agentTurn, skills, isRunning, o
         </div>
         <div>
           <dt>仓库</dt>
-          <dd>{preflight?.repository?.sourceType === "github" ? "GitHub" : preflight?.repository ? "本地" : "未接入"}</dd>
+          <dd>{repo?.sourceType === "github" ? "GitHub" : repo ? "本地" : "未接入"}</dd>
         </div>
         <div>
           <dt>沙盒</dt>
-          <dd>{preflight?.sandbox?.id ?? "未创建"}</dd>
+          <dd>{box?.id ?? "未创建"}</dd>
         </div>
         <div>
           <dt>Skill</dt>

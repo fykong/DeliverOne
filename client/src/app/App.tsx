@@ -56,6 +56,8 @@ export function App() {
       <Inspector
         conversationId={workbench.conversationId}
         preflight={workbench.preflight}
+        repository={workbench.repository}
+        sandbox={workbench.sandbox}
         agentTurn={workbench.agentTurn}
         toolPlan={workbench.toolPlan}
         checkpoints={workbench.checkpoints}

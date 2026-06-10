@@ -75,6 +75,10 @@ class RuntimeSnapshotService:
         memory: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
         clarifier = self._latest_audit(audits, "Clarifier")
+        # 提问/闲聊输入的 Clarifier 审计只是意图路由依据(已转对话回答),
+        # 不是交付阻断——别让状态机因为用户问了句话就显示红色"阻断"。
+        if clarifier and str(clarifier.get("inputIntent") or "development") != "development":
+            clarifier = None
         reviewer = self._latest_audit((plan or {}).get("audits", []) + audits if plan else audits, "Reviewer")
         verifier = self._latest_audit((plan or {}).get("audits", []) + audits if plan else audits, "Verifier")
         diff_count = int((diff or {}).get("fileCount") or 0)
