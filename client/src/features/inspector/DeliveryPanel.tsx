@@ -1,6 +1,7 @@
-import { Archive, GitPullRequest, Image as ImageIcon, PackageCheck } from "lucide-react";
-import type { DeliveryPreview, DeliveryReport } from "@workbench/shared";
-import { getPreviewScreenshotUrl } from "../../shared/api";
+import { Archive, GitBranch, GitPullRequest, Image as ImageIcon, PackageCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { DeliveryPreview, DeliveryReport, DeliverySubmission } from "@workbench/shared";
+import { getDeliverySubmission, getPreviewScreenshotUrl, submitDelivery } from "../../shared/api";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { RollbackConfirmationView } from "./RollbackConfirmationView";
 import { UnifiedDiffViewer } from "./UnifiedDiffViewer";
@@ -14,9 +15,53 @@ interface DeliveryPanelProps {
   onApplyDeliveryToSource: () => void;
 }
 
+function shortSha(sha: string) {
+  return sha ? sha.slice(0, 12) : "未知";
+}
+
+function submissionModeText(mode: DeliverySubmission["mode"]) {
+  return mode === "github-pr" ? "GitHub PR 已创建" : "PR-ready 提测分支已生成";
+}
+
 export function DeliveryPanel({ conversationId, deliveryReport, deliveryPreview, isRunning, onGenerateDeliveryPackage, onApplyDeliveryToSource }: DeliveryPanelProps) {
   const markdown = deliveryPreview?.markdown;
   const patch = deliveryPreview?.patch;
+  const [submission, setSubmission] = useState<DeliverySubmission | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSubmission(null);
+    setSubmissionError(null);
+    getDeliverySubmission(conversationId)
+      .then((result) => {
+        if (!cancelled) {
+          setSubmission(result.exists && result.submission ? result.submission : null);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
+
+  async function handleSubmitDelivery() {
+    if (isSubmitting) return;
+    const confirmed = window.confirm("确认基于当前沙盒改动生成提测分支并尝试创建 PR？commit 只发生在沙盒仓库，原始仓库不受影响。");
+    if (!confirmed) return;
+    setIsSubmitting(true);
+    setSubmissionError(null);
+    try {
+      const record = await submitDelivery({ conversationId, confirmed: true });
+      setSubmission(record);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <section className="panel">
       <h3>
@@ -34,7 +79,51 @@ export function DeliveryPanel({ conversationId, deliveryReport, deliveryPreview,
           <GitPullRequest size={16} />
           应用到原仓库
         </button>
+        <button type="button" disabled={isRunning || isSubmitting} onClick={() => void handleSubmitDelivery()}>
+          <GitBranch size={16} />
+          {isSubmitting ? "正在生成提测分支..." : "生成提测分支 / PR"}
+        </button>
       </div>
+
+      {submissionError && <p className="submissionError">提测失败：{submissionError}</p>}
+
+      {submission && (
+        <div className="submissionSummary">
+          <p>
+            <strong>{submissionModeText(submission.mode)}</strong>
+          </p>
+          <p>
+            分支 <code>{submission.branch}</code>（基于 <code>{submission.baseBranch}</code>）· Commit <code>{shortSha(submission.commitSha)}</code>
+          </p>
+          {submission.pullRequest.url ? (
+            <p>
+              PR：
+              <a href={submission.pullRequest.url} target="_blank" rel="noreferrer">
+                {submission.pullRequest.url}
+              </a>
+            </p>
+          ) : null}
+          {submission.push.attempted ? (
+            <p className={submission.push.ok ? undefined : "submissionIssue"}>
+              push {submission.push.ok ? "成功" : "失败"}
+              {submission.push.detail ? `：${submission.push.detail}` : ""}
+            </p>
+          ) : submission.push.detail ? (
+            <p>{submission.push.detail}</p>
+          ) : null}
+          {submission.pullRequest.attempted && !submission.pullRequest.ok ? (
+            <p className="submissionIssue">PR 创建失败{submission.pullRequest.detail ? `：${submission.pullRequest.detail}` : "。"}</p>
+          ) : null}
+          {submission.notes.length ? (
+            <ul>
+              {submission.notes.map((note, index) => (
+                <li key={`${index}-${note.slice(0, 12)}`}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="submissionMeta">提测时间：{new Date(submission.generatedAt).toLocaleString()}</p>
+        </div>
+      )}
 
       {deliveryReport ? (
         <div className="deliverySummary">

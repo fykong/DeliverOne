@@ -1444,3 +1444,44 @@ export interface DeliveryApplyResult {
   applied: Array<{ path: string; action: "copy" | "delete" }>;
   backupPath: string;
 }
+
+export interface DeliverySubmissionPushResult {
+  attempted: boolean;
+  ok: boolean;
+  detail: string;
+}
+
+export interface DeliverySubmissionPullRequestResult {
+  attempted: boolean;
+  ok: boolean;
+  url?: string | null;
+  number?: number;
+  detail: string;
+}
+
+export interface DeliverySubmission {
+  id: string;
+  conversationId: string;
+  generatedAt: string;
+  branch: string;
+  baseBranch: string;
+  commitSha: string;
+  title: string;
+  requirement: string;
+  remoteUrl?: string | null;
+  githubRepo?: string | null;
+  push: DeliverySubmissionPushResult;
+  pullRequest: DeliverySubmissionPullRequestResult;
+  artifacts: {
+    prDescriptionPath: string;
+    patchPath: string;
+  };
+  mode: "github-pr" | "pr-ready-branch";
+  notes: string[];
+}
+
+export interface DeliverySubmissionStatus {
+  conversationId: string;
+  exists: boolean;
+  submission?: DeliverySubmission | null;
+}

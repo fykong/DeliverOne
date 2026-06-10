@@ -159,6 +159,7 @@ export function MCPPanel({
   const [configText, setConfigText] = useState(prettyJson(config ?? { version: 1, servers: [] }));
   const [configError, setConfigError] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const configUnavailable = config === null;
 
   const externalTools = tools.filter((tool) => tool.source === "external");
   const activeApprovals = approvals.filter((approval) => approval.active);
@@ -190,6 +191,10 @@ export function MCPPanel({
   }
 
   function saveConfig() {
+    if (configUnavailable) {
+      setConfigError("配置加载失败，已禁止保存以防覆盖真实配置文件。");
+      return;
+    }
     const parsed = readConfig();
     if (parsed) {
       onSaveConfig(parsed);
@@ -238,6 +243,13 @@ export function MCPPanel({
         </button>
       </div>
 
+      {configUnavailable && (
+        <p className="mcpConfigWarning">
+          <AlertTriangle size={13} />
+          MCP 配置加载失败，已禁止保存以防空模板覆盖真实配置文件；请确认后端已重启，再点右上角「刷新证据」重新加载。
+        </p>
+      )}
+
       {isEditingConfig && (
         <div className="mcpConfigEditor">
           <textarea value={configText} onChange={(event) => setConfigText(event.target.value)} spellCheck={false} />
@@ -256,7 +268,7 @@ export function MCPPanel({
             <button type="button" disabled={isRunning} onClick={validateConfig}>
               校验配置
             </button>
-            <button type="button" disabled={isRunning} onClick={saveConfig}>
+            <button type="button" disabled={isRunning || configUnavailable} onClick={saveConfig} title={configUnavailable ? "配置加载失败时禁止保存，避免覆盖真实配置。" : undefined}>
               保存配置
             </button>
             <button type="button" disabled={isRunning} onClick={() => setIsEditingConfig(false)}>

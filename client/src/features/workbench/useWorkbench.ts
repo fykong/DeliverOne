@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentAuditRecord,
   AgentConversationState,
@@ -48,6 +48,7 @@ import {
   getCheckpointDiff,
   getConversation,
   getCurrentDiff,
+  getEvents,
   getFileDiff,
   generateMemoryPatchDraft,
   getMCPConfig,
@@ -264,6 +265,28 @@ export function useWorkbench() {
   const [selectedCheckpointId, setSelectedCheckpointId] = useState<string | null>(null);
   const [previewCommand, setPreviewCommand] = useState(defaultPreviewCommand);
   const [isRunning, setIsRunning] = useState(false);
+  const [isExecutingToolPlan, setIsExecutingToolPlan] = useState(false);
+  const [executionStatus, setExecutionStatus] = useState<string | null>(null);
+
+  // 写动作（含长执行）统一用这个标记禁用；只读动作只看短动作 isRunning。
+  const isBusy = isRunning || isExecutingToolPlan;
+
+  const conversationIdRef = useRef(conversationId);
+  const executionPollTimerRef = useRef<number | null>(null);
+  const executionPollTokenRef = useRef(0);
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+
+  useEffect(() => {
+    return () => {
+      if (executionPollTimerRef.current !== null) {
+        window.clearInterval(executionPollTimerRef.current);
+        executionPollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     void getModelSettings().then(setModels);
@@ -447,7 +470,7 @@ export function useWorkbench() {
   }
 
   async function removeConversation(targetConversationId: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     const confirmed = window.confirm("确认删除这个对话及其沙盒工作区？");
     if (!confirmed) return;
     setIsRunning(true);
@@ -500,7 +523,7 @@ export function useWorkbench() {
   }
 
   async function connectRepository(kind: "local" | "github") {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result =
@@ -536,7 +559,7 @@ export function useWorkbench() {
 
   async function handleRunAgent() {
     const trimmedRequirement = requirement.trim();
-    if (!trimmedRequirement || isRunning || !sandbox) return;
+    if (!trimmedRequirement || isBusy || !sandbox) return;
 
     setIsRunning(true);
     setToolPlan(null);
@@ -556,7 +579,14 @@ export function useWorkbench() {
         if (message) {
           pushMessage({ role: "Agent", text: message });
         }
-        pushMessage({ role: "Agent", text: bundle.turn.reply, meta: `模型：${bundle.turn.model.displayName}` });
+        const clarifyingQuestions =
+          bundle.turn.phase === "clarification" && clarification?.questions?.length ? clarification.questions : undefined;
+        pushMessage({
+          role: "Agent",
+          text: bundle.turn.reply,
+          meta: `模型：${bundle.turn.model.displayName}`,
+          questions: clarifyingQuestions
+        });
       }
       await refreshConversations();
     } catch (error) {
@@ -567,7 +597,7 @@ export function useWorkbench() {
   }
 
   async function handleConfirmPlan() {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const bundle = await runOrchestratorAction({ conversationId, action: "approve_plan", requirement });
@@ -592,7 +622,7 @@ export function useWorkbench() {
   }
 
   async function handleApproveToolPlan() {
-    if (!toolPlan || isRunning) return;
+    if (!toolPlan || isBusy) return;
     setIsRunning(true);
     try {
       const bundle = await runOrchestratorAction({ conversationId, action: "approve_tool_plan", planId: toolPlan.id });
@@ -607,8 +637,8 @@ export function useWorkbench() {
   }
 
   async function handleConfirmAndExecuteToolPlan() {
-    if (!toolPlan || isRunning) return;
-    setIsRunning(true);
+    if (!toolPlan || isBusy) return;
+    setIsExecutingToolPlan(true);
     try {
       let planId = toolPlan.id;
       if (toolPlan.status === "waiting_confirmation") {
@@ -628,12 +658,12 @@ export function useWorkbench() {
     } catch (error) {
       pushMessage({ role: "Agent", text: `确认并执行失败：${error instanceof Error ? error.message : String(error)}` });
     } finally {
-      setIsRunning(false);
+      setIsExecutingToolPlan(false);
     }
   }
 
   async function handleCreateRepairPlan() {
-    if (!toolPlan || isRunning) return;
+    if (!toolPlan || isBusy) return;
     setIsRunning(true);
     try {
       const bundle = await runOrchestratorAction({ conversationId, action: "repair_failed_plan", planId: toolPlan.id });
@@ -654,7 +684,7 @@ export function useWorkbench() {
     stepId: string,
     options: { reason?: string; title?: string; purpose?: string; input?: Record<string, unknown>; targetOrder?: number } = {}
   ) {
-    if (!toolPlan || isRunning) return;
+    if (!toolPlan || isBusy) return;
     setIsRunning(true);
     try {
       const nextPlan = await editToolCallPlan({
@@ -675,7 +705,7 @@ export function useWorkbench() {
   }
 
   async function handleRewriteToolPlan(instruction: string) {
-    if (!toolPlan || isRunning) return;
+    if (!toolPlan || isBusy) return;
     const cleaned = instruction.trim();
     if (!cleaned) {
       pushMessage({ role: "系统", text: "请先写清楚希望如何调整工具计划。" });
@@ -705,7 +735,7 @@ export function useWorkbench() {
     operation: "annotate_stage" | "pause_stage" | "resume_stage" | "set_next_actions" | "clear_next_actions",
     options: { stageId?: string; note?: string; actionIds?: string[] } = {}
   ) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const nextRuntime = await editTaskStateMachine({
@@ -734,22 +764,70 @@ export function useWorkbench() {
   }
 
   async function handleExecuteToolPlan() {
-    if (!toolPlan || isRunning) return;
-    setIsRunning(true);
+    if (!toolPlan || isBusy) return;
+    setIsExecutingToolPlan(true);
     try {
       await executeToolPlanById(toolPlan.id);
     } catch (error) {
       pushMessage({ role: "Agent", text: `执行失败：${error instanceof Error ? error.message : String(error)}` });
     } finally {
-      setIsRunning(false);
+      setIsExecutingToolPlan(false);
     }
   }
 
+  function startExecutionPolling(targetConversationId: string) {
+    stopExecutionPolling();
+    const token = ++executionPollTokenRef.current;
+    setExecutionStatus("正在执行工具计划，等待 runtime 事件……");
+    const tick = async () => {
+      try {
+        const polledEvents = await getEvents(targetConversationId);
+        // 用 ref 标记当前轮询会话，过期响应直接丢弃，避免竞态。
+        if (executionPollTokenRef.current !== token) return;
+        if (conversationIdRef.current !== targetConversationId) {
+          // 用户切换到了其它会话：先隐藏进度条，切回来后下一轮会恢复显示。
+          setExecutionStatus(null);
+          return;
+        }
+        setEvents(polledEvents);
+        const last = polledEvents.at(-1);
+        setExecutionStatus(`正在执行：${last ? last.type : "等待事件"} · 已记录 ${polledEvents.length} 条事件`);
+      } catch {
+        // 轮询失败不打断执行，下一轮继续。
+      }
+    };
+    void tick();
+    executionPollTimerRef.current = window.setInterval(() => {
+      void tick();
+    }, 2000);
+  }
+
+  function stopExecutionPolling() {
+    executionPollTokenRef.current += 1;
+    if (executionPollTimerRef.current !== null) {
+      window.clearInterval(executionPollTimerRef.current);
+      executionPollTimerRef.current = null;
+    }
+    setExecutionStatus(null);
+  }
+
   async function executeToolPlanById(planId: string) {
+    const targetConversationId = conversationId;
     pushMessage({ role: "Agent", text: "开始执行工具计划。右侧会更新 diff、checkpoint 和验证证据。" });
-    const bundle = await runOrchestratorAction({ conversationId, action: "execute_tool_plan", planId });
+    startExecutionPolling(targetConversationId);
+    let bundle: AgentOrchestratorBundle;
+    try {
+      bundle = await runOrchestratorAction({ conversationId: targetConversationId, action: "execute_tool_plan", planId });
+    } finally {
+      stopExecutionPolling();
+    }
+    if (conversationIdRef.current !== targetConversationId) {
+      // 执行期间用户已切换会话：不要把旧会话结果写入当前界面。
+      await refreshConversations();
+      return;
+    }
     applyOrchestratorBundle(bundle);
-    await refreshCurrentDiff();
+    await refreshCurrentDiff(targetConversationId);
     const plan = bundle.executedToolPlan ?? bundle.toolPlan;
     if (!plan) {
       throw new Error("工具计划执行后没有返回计划状态。");
@@ -773,7 +851,7 @@ export function useWorkbench() {
   }
 
   async function handleRollbackCheckpoint(checkpointId: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await rollbackCheckpoint({ conversationId, checkpointId });
@@ -787,7 +865,7 @@ export function useWorkbench() {
   }
 
   async function handleRollbackCheckpointFile(checkpointId: string, relativePath: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await rollbackCheckpointFile({ conversationId, checkpointId, relativePath });
@@ -805,7 +883,7 @@ export function useWorkbench() {
   }
 
   async function handleRollbackCheckpointHunk(checkpointId: string, relativePath: string, hunkIndex: number) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await rollbackCheckpointHunk({ conversationId, checkpointId, relativePath, hunkIndex });
@@ -823,7 +901,7 @@ export function useWorkbench() {
   }
 
   async function handleRollbackOriginal() {
-    if (isRunning) return;
+    if (isBusy) return;
     const confirmed = window.confirm("确认把当前对话沙盒回到原始 HEAD？这会丢弃沙盒内所有未提交改动。");
     if (!confirmed) return;
     setIsRunning(true);
@@ -839,7 +917,7 @@ export function useWorkbench() {
   }
 
   async function handleStartPreview() {
-    if (isRunning || !previewCommand.trim()) return;
+    if (isBusy || !previewCommand.trim()) return;
     setIsRunning(true);
     try {
       const recommended = sandboxRuntime?.commandRecommendations?.preview.primary;
@@ -855,7 +933,7 @@ export function useWorkbench() {
   }
 
   async function handleStopPreview(processId: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const process = await stopPreview({ conversationId, processId });
@@ -870,7 +948,7 @@ export function useWorkbench() {
   }
 
   async function handleRunPreviewSmokeTest(port: number) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const report = await runPreviewSmokeTest({ conversationId, port, path: "/", timeoutSeconds: 30 });
@@ -885,7 +963,7 @@ export function useWorkbench() {
   }
 
   async function handleGenerateDeliveryPackage() {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const report = await generateDeliveryPackage({ conversationId });
@@ -902,7 +980,7 @@ export function useWorkbench() {
   }
 
   async function handleApplyDeliveryToSource() {
-    if (isRunning || !deliveryReport) return;
+    if (isBusy || !deliveryReport) return;
     const confirmed = window.confirm("确认把当前沙盒交付包应用回原始本地仓库？系统会先备份被覆盖文件。");
     if (!confirmed) return;
     setIsRunning(true);
@@ -918,7 +996,7 @@ export function useWorkbench() {
   }
 
   async function handleDiscoverMCPTools() {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await discoverMCPTools({ timeoutSeconds: 8 });
@@ -933,7 +1011,7 @@ export function useWorkbench() {
   }
 
   async function handleSaveMCPConfig(config: Record<string, unknown>) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const validation = await validateMCPConfig(config);
@@ -955,7 +1033,7 @@ export function useWorkbench() {
   }
 
   async function handleValidateMCPConfig(config: Record<string, unknown>) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const validation = await validateMCPConfig(config);
@@ -974,7 +1052,7 @@ export function useWorkbench() {
   }
 
   async function handleReplayMCPHistory(historyEntryId: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await replayMCPHistory({ conversationId, historyEntryId });
@@ -988,7 +1066,7 @@ export function useWorkbench() {
   }
 
   async function handleGrantToolApproval(toolId: string, scope: ApprovalGrant["scope"], riskLevel = "external", command?: string, requestEventId?: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const approval = await grantApproval({
@@ -1010,7 +1088,7 @@ export function useWorkbench() {
   }
 
   async function handleDenyToolApproval(toolId: string, riskLevel: string, reason: string, requestEventId?: string, command?: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const decision = await denyApproval({ conversationId, toolId, riskLevel, reason, requestEventId, command });
@@ -1024,7 +1102,7 @@ export function useWorkbench() {
   }
 
   async function handleRevokeApproval(grantId: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const approval = await revokeApproval({ conversationId, grantId });
@@ -1038,7 +1116,7 @@ export function useWorkbench() {
   }
 
   async function handlePinMemory(itemId: string, pinned: boolean) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       await pinMemory({ itemId, value: pinned });
@@ -1052,7 +1130,7 @@ export function useWorkbench() {
   }
 
   async function handleForgetMemory(itemId: string) {
-    if (isRunning) return;
+    if (isBusy) return;
     const confirmed = window.confirm("确认遗忘这条长期记忆？它不会再进入后续上下文召回。");
     if (!confirmed) return;
     setIsRunning(true);
@@ -1076,7 +1154,7 @@ export function useWorkbench() {
     pinned?: boolean;
     importance?: number;
   }) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await upsertManualMemory({ conversationId, ...input });
@@ -1090,7 +1168,7 @@ export function useWorkbench() {
   }
 
   async function handleGenerateMemoryPatchDraft() {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const draft = await generateMemoryPatchDraft({
@@ -1112,7 +1190,7 @@ export function useWorkbench() {
   }
 
   async function handleApplyMemoryPatchCandidate(candidate: MemoryPatchCandidate) {
-    if (isRunning) return;
+    if (isBusy) return;
     setIsRunning(true);
     try {
       const result = await applyMemoryPatchCandidate({
@@ -1194,7 +1272,9 @@ export function useWorkbench() {
     deliveryPreview,
     previewSmokeReport,
     githubUrl,
-    isRunning,
+    isRunning: isBusy,
+    isExecutingToolPlan,
+    executionStatus,
     localPath,
     messages,
     models,

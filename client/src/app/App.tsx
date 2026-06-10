@@ -38,6 +38,7 @@ export function App() {
           searchIntent={workbench.memory?.searchIntent ?? workbench.preflight?.searchIntent ?? null}
           taskLedger={workbench.memory?.taskLedger ?? null}
           isRunning={workbench.isRunning}
+          executionStatus={workbench.executionStatus}
           canSend={Boolean(workbench.sandbox)}
           onRequirementChange={workbench.setRequirement}
           onRunAgent={() => void workbench.handleRunAgent()}
@@ -75,6 +76,7 @@ export function App() {
         selectedCheckpointId={workbench.selectedCheckpointId}
         skills={workbench.skills}
         isRunning={workbench.isRunning}
+        isExecutingToolPlan={workbench.isExecutingToolPlan}
         previewCommand={workbench.previewCommand}
         onPreviewCommandChange={workbench.setPreviewCommand}
         onConfirmPlan={() => void workbench.handleConfirmPlan()}

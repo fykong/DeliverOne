@@ -9,6 +9,8 @@ import type {
   DeliveryApplyResult,
   DeliveryPreview,
   DeliveryReport,
+  DeliverySubmission,
+  DeliverySubmissionStatus,
   ManagedProcess,
   MCPConfigValidation,
   MCPDiscoveryResult,
@@ -258,6 +260,14 @@ export function getDeliveryPreview(conversationId: string) {
 
 export function applyDeliveryToSource(input: { conversationId: string; confirmed: boolean }) {
   return postJson<DeliveryApplyResult>("/api/delivery/apply-to-source", input);
+}
+
+export function submitDelivery(input: { conversationId: string; confirmed: boolean; title?: string; baseBranch?: string }) {
+  return postJson<DeliverySubmission>("/api/delivery/submit", input);
+}
+
+export function getDeliverySubmission(conversationId: string) {
+  return requestJson<DeliverySubmissionStatus>(`/api/delivery/submission/${conversationId}`);
 }
 
 export function getConversation(conversationId: string) {

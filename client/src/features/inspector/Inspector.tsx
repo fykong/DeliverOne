@@ -47,6 +47,7 @@ export function Inspector({
   selectedCheckpointId,
   skills,
   isRunning,
+  isExecutingToolPlan,
   previewCommand,
   onPreviewCommandChange,
   onConfirmPlan,
@@ -90,7 +91,7 @@ export function Inspector({
           <h2>交付面板</h2>
           <p>{currentPhase}</p>
         </div>
-        <button className="iconButton" type="button" onClick={onRefreshEvidence} disabled={isRunning} title="刷新证据">
+        <button className="iconButton" type="button" onClick={onRefreshEvidence} disabled={isRunning && !isExecutingToolPlan} title="刷新证据">
           <RefreshCw size={16} />
         </button>
       </div>

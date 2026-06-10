@@ -3586,3 +3586,135 @@ code {
     grid-template-columns: 260px minmax(480px, 1fr) 340px;
   }
 }
+
+/* 提测分支 / PR 提交结果 */
+.submissionError {
+  margin-top: 8px;
+  color: #a33a32;
+  font-size: 12px;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.submissionSummary {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  border: 1px solid #d8d6ce;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.submissionSummary p {
+  margin: 0;
+  color: #30342f;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.submissionSummary strong {
+  color: #047f64;
+  font-size: 13px;
+}
+
+.submissionSummary code {
+  color: #20231f;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.submissionSummary a {
+  color: #047f64;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.submissionSummary .submissionIssue {
+  color: #a33a32;
+}
+
+.submissionSummary ul {
+  margin: 0;
+  padding-left: 16px;
+  color: #737a73;
+  font-size: 11px;
+}
+
+.submissionSummary .submissionMeta {
+  color: #8b9289;
+  font-size: 11px;
+}
+
+/* MCP 配置加载失败提示 */
+.mcpConfigWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  border: 1px solid #e2c2bd;
+  border-radius: 6px;
+  background: #f8e6e3;
+  color: #a33a32;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.mcpConfigWarning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* 工具计划执行中的轻量进度条 */
+.executionStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 24px 8px;
+  border: 1px solid #d8d6ce;
+  border-radius: 8px;
+  background: #f6f5ef;
+  color: #4f564f;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
+.executionStatusIcon {
+  flex-shrink: 0;
+  animation: executionSpin 1.2s linear infinite;
+}
+
+@keyframes executionSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 澄清问题列表块 */
+.clarifyBlock {
+  margin-top: 10px;
+  border: 1px solid #d8d6ce;
+  border-left: 3px solid #8a6d1f;
+  border-radius: 6px;
+  background: #fbf9f2;
+  padding: 10px 12px;
+}
+
+.clarifyBlock strong {
+  display: block;
+  color: #8a6d1f;
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.clarifyBlock ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: #20231f;
+  font-size: 14px;
+}

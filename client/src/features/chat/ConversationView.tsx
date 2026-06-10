@@ -1,4 +1,4 @@
-import { Play } from "lucide-react";
+import { Loader2, Play } from "lucide-react";
 import type { SearchIntentSnapshot, TaskLedgerSnapshot } from "@workbench/shared";
 import type { ConversationMessage } from "./types";
 
@@ -8,6 +8,7 @@ interface ConversationViewProps {
   searchIntent: SearchIntentSnapshot | null;
   taskLedger: TaskLedgerSnapshot | null;
   isRunning: boolean;
+  executionStatus: string | null;
   canSend: boolean;
   onRequirementChange: (value: string) => void;
   onRunAgent: () => void;
@@ -19,6 +20,7 @@ export function ConversationView({
   searchIntent,
   taskLedger,
   isRunning,
+  executionStatus,
   canSend,
   onRequirementChange,
   onRunAgent,
@@ -33,10 +35,27 @@ export function ConversationView({
           <article className={`message ${message.role === "你" ? "user" : message.role === "系统" ? "system" : "agent"}`} key={`${message.role}-${index}`}>
             <div className="messageRole">{message.role}</div>
             <div className="messageText">{message.text}</div>
+            {message.questions?.length ? (
+              <div className="clarifyBlock" aria-label="澄清问题">
+                <strong>澄清问题</strong>
+                <ol>
+                  {message.questions.map((question, questionIndex) => (
+                    <li key={`${questionIndex}-${question.slice(0, 12)}`}>{question}</li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
             {message.meta && <div className="messageMeta">{message.meta}</div>}
           </article>
         ))}
       </section>
+
+      {executionStatus && (
+        <div className="executionStatus" role="status" aria-live="polite">
+          <Loader2 size={14} className="executionStatusIcon" />
+          <span>{executionStatus}</span>
+        </div>
+      )}
 
       <footer className="composer">
         <textarea

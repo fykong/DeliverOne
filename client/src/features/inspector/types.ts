@@ -57,6 +57,8 @@ export interface InspectorProps {
   selectedCheckpointId: string | null;
   skills: SkillSummary[];
   isRunning: boolean;
+  /** 长执行（execute_tool_plan）期间为 true，此时仍允许只读刷新。 */
+  isExecutingToolPlan: boolean;
   previewCommand: string;
   onPreviewCommandChange: (value: string) => void;
   onConfirmPlan: () => void;
