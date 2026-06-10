@@ -171,6 +171,68 @@ button:disabled {
   align-items: center;
 }
 
+.inspectorTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1f2a20;
+  position: sticky;
+  top: 0;
+  background: #11160f;
+  z-index: 5;
+}
+
+.inspectorTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #19211711;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 5px 10px;
+  color: #8e978e;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.inspectorTab:hover {
+  color: #cfe0cf;
+  background: #1d271c;
+}
+
+.inspectorTab.active {
+  color: #0d1410;
+  background: #9ad0a2;
+  border-color: #9ad0a2;
+}
+
+.tabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #2c3a2c;
+  color: #b6d6b6;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.inspectorTab.active .tabBadge {
+  background: #0d1410;
+  color: #9ad0a2;
+}
+
+.inspectorTabBody {
+  display: flex;
+  flex-direction: column;
+}
+
 .panelError {
   border: 1px solid #6b3a3a;
   background: #2a1d1d;

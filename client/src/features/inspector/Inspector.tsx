@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { CurrentContextPanel } from "./CurrentContextPanel";
@@ -84,6 +85,17 @@ export function Inspector({
   onOpenCheckpointDiff
 }: InspectorProps) {
   const currentPhase = agentTurn ? phaseLabels[agentTurn.phase] : preflight ? "仓库已接入" : "等待仓库";
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+
+  const tabs: { key: TabKey; label: string; badge?: number | string }[] = [
+    { key: "overview", label: "概览" },
+    { key: "plan", label: "工具计划", badge: toolPlan?.steps?.length || undefined },
+    { key: "code", label: "代码与回退", badge: currentDiff?.files?.length || undefined },
+    { key: "preview", label: "验证预览" },
+    { key: "delivery", label: "交付" },
+    { key: "memory", label: "记忆指标", badge: memory?.recall?.entryCount || undefined },
+    { key: "events", label: "事件 / MCP" }
+  ];
 
   return (
     <aside className="inspector">
@@ -97,95 +109,147 @@ export function Inspector({
         </button>
       </div>
 
-      <CurrentContextPanel preflight={preflight} agentTurn={agentTurn} skills={skills} isRunning={isRunning} onConfirmPlan={onConfirmPlan} />
-      <RuntimePanel snapshot={runtimeSnapshot} isRunning={isRunning} onEditTaskState={onEditTaskState} />
-      <SandboxRuntimePanel snapshot={sandboxRuntime} />
-      <ToolPlanPanel
-        toolPlan={toolPlan}
-        isRunning={isRunning}
-        onConfirmAndExecuteToolPlan={onConfirmAndExecuteToolPlan}
-        onCreateRepairPlan={onCreateRepairPlan}
-        onContinuePlan={onContinuePlan}
-        onEditToolPlanStep={onEditToolPlanStep}
-        onRewriteToolPlan={onRewriteToolPlan}
-        onOpenDiffFile={onOpenDiffFile}
-        onOpenCheckpointDiff={onOpenCheckpointDiff}
-        onRollbackCheckpoint={onRollbackCheckpoint}
-      />
-      <ApprovalPanel events={events} approvals={approvals} isRunning={isRunning} onGrant={onGrantToolApproval} onDeny={onDenyToolApproval} />
-      <PreviewPanel
-        conversationId={conversationId}
-        processes={processes}
-        previewSmokeReport={previewSmokeReport}
-        previewCommand={previewCommand}
-        recommendedPreview={sandboxRuntime?.commandRecommendations?.preview.primary ?? null}
-        isRunning={isRunning}
-        onPreviewCommandChange={onPreviewCommandChange}
-        onStartPreview={onStartPreview}
-        onStopPreview={onStopPreview}
-        onRunPreviewSmokeTest={onRunPreviewSmokeTest}
-      />
-      <MCPPanel
-        config={mcpConfig}
-        configValidation={mcpConfigValidation}
-        servers={mcpServers}
-        tools={mcpTools}
-        history={mcpHistory}
-        approvals={approvals}
-        isRunning={isRunning}
-        onDiscover={onDiscoverMCPTools}
-        onSaveConfig={onSaveMCPConfig}
-        onValidateConfig={onValidateMCPConfig}
-        onReplayHistory={onReplayMCPHistory}
-        onGrant={onGrantToolApproval}
-        onRevoke={onRevokeApproval}
-      />
-      <EvidencePanel toolPlan={toolPlan} checkpoints={checkpoints} />
-      <MemoryPanel
-        memory={memory}
-        memoryPatchDraft={memoryPatchDraft}
-        isRunning={isRunning}
-        onPinMemory={onPinMemory}
-        onForgetMemory={onForgetMemory}
-        onUpsertManualMemory={onUpsertManualMemory}
-        onGenerateMemoryPatchDraft={onGenerateMemoryPatchDraft}
-        onApplyMemoryPatchCandidate={onApplyMemoryPatchCandidate}
-      />
-      <MetricsPanel metrics={metrics} />
-      <DeliveryPanel
-        conversationId={conversationId}
-        deliveryReport={deliveryReport}
-        deliveryPreview={deliveryPreview}
-        isRunning={isRunning}
-        onGenerateDeliveryPackage={onGenerateDeliveryPackage}
-        onApplyDeliveryToSource={onApplyDeliveryToSource}
-      />
-      <SandboxFilePanel
-        sandboxFiles={sandboxFiles}
-        selectedFile={selectedFile}
-        selectedFilePath={selectedFilePath}
-        currentDiff={currentDiff}
-        selectedDiff={selectedDiff}
-        checkpointDiff={checkpointDiff}
-        selectedCheckpointId={selectedCheckpointId}
-        checkpoints={checkpoints}
-        isRunning={isRunning}
-        onOpenSandboxFile={onOpenSandboxFile}
-        onOpenDiffFile={onOpenDiffFile}
-        onOpenCheckpointDiff={onOpenCheckpointDiff}
-        onRollbackCheckpoint={onRollbackCheckpoint}
-        onRollbackCheckpointFile={onRollbackCheckpointFile}
-        onRollbackCheckpointHunk={onRollbackCheckpointHunk}
-      />
-      <EventStreamPanel events={events} />
-      <RollbackPanel
-        conversationId={conversationId}
-        checkpoints={checkpoints}
-        sandboxRuntime={sandboxRuntime}
-        isRunning={isRunning}
-        onRollbackCheckpoint={onRollbackCheckpoint}
-        onRollbackOriginal={onRollbackOriginal}
-      />
+      <div className="inspectorTabs" role="tablist">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            className={`inspectorTab ${activeTab === tab.key ? "active" : ""}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+            {tab.badge ? <span className="tabBadge">{tab.badge}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      <div className="inspectorTabBody">
+        {activeTab === "overview" && (
+          <>
+            <CurrentContextPanel preflight={preflight} agentTurn={agentTurn} skills={skills} isRunning={isRunning} onConfirmPlan={onConfirmPlan} />
+            <RuntimePanel snapshot={runtimeSnapshot} isRunning={isRunning} onEditTaskState={onEditTaskState} />
+            <SandboxRuntimePanel snapshot={sandboxRuntime} />
+          </>
+        )}
+
+        {activeTab === "plan" && (
+          <>
+            <ToolPlanPanel
+              toolPlan={toolPlan}
+              isRunning={isRunning}
+              onConfirmAndExecuteToolPlan={onConfirmAndExecuteToolPlan}
+              onCreateRepairPlan={onCreateRepairPlan}
+              onContinuePlan={onContinuePlan}
+              onEditToolPlanStep={onEditToolPlanStep}
+              onRewriteToolPlan={onRewriteToolPlan}
+              onOpenDiffFile={onOpenDiffFile}
+              onOpenCheckpointDiff={onOpenCheckpointDiff}
+              onRollbackCheckpoint={onRollbackCheckpoint}
+            />
+            <ApprovalPanel events={events} approvals={approvals} isRunning={isRunning} onGrant={onGrantToolApproval} onDeny={onDenyToolApproval} />
+          </>
+        )}
+
+        {activeTab === "code" && (
+          <>
+            <SandboxFilePanel
+              sandboxFiles={sandboxFiles}
+              selectedFile={selectedFile}
+              selectedFilePath={selectedFilePath}
+              currentDiff={currentDiff}
+              selectedDiff={selectedDiff}
+              checkpointDiff={checkpointDiff}
+              selectedCheckpointId={selectedCheckpointId}
+              checkpoints={checkpoints}
+              isRunning={isRunning}
+              onOpenSandboxFile={onOpenSandboxFile}
+              onOpenDiffFile={onOpenDiffFile}
+              onOpenCheckpointDiff={onOpenCheckpointDiff}
+              onRollbackCheckpoint={onRollbackCheckpoint}
+              onRollbackCheckpointFile={onRollbackCheckpointFile}
+              onRollbackCheckpointHunk={onRollbackCheckpointHunk}
+            />
+            <RollbackPanel
+              conversationId={conversationId}
+              checkpoints={checkpoints}
+              sandboxRuntime={sandboxRuntime}
+              isRunning={isRunning}
+              onRollbackCheckpoint={onRollbackCheckpoint}
+              onRollbackOriginal={onRollbackOriginal}
+            />
+          </>
+        )}
+
+        {activeTab === "preview" && (
+          <PreviewPanel
+            conversationId={conversationId}
+            processes={processes}
+            previewSmokeReport={previewSmokeReport}
+            previewCommand={previewCommand}
+            recommendedPreview={sandboxRuntime?.commandRecommendations?.preview.primary ?? null}
+            isRunning={isRunning}
+            onPreviewCommandChange={onPreviewCommandChange}
+            onStartPreview={onStartPreview}
+            onStopPreview={onStopPreview}
+            onRunPreviewSmokeTest={onRunPreviewSmokeTest}
+          />
+        )}
+
+        {activeTab === "delivery" && (
+          <>
+            <DeliveryPanel
+              conversationId={conversationId}
+              deliveryReport={deliveryReport}
+              deliveryPreview={deliveryPreview}
+              isRunning={isRunning}
+              onGenerateDeliveryPackage={onGenerateDeliveryPackage}
+              onApplyDeliveryToSource={onApplyDeliveryToSource}
+            />
+            <EvidencePanel toolPlan={toolPlan} checkpoints={checkpoints} />
+          </>
+        )}
+
+        {activeTab === "memory" && (
+          <>
+            <MemoryPanel
+              memory={memory}
+              memoryPatchDraft={memoryPatchDraft}
+              isRunning={isRunning}
+              onPinMemory={onPinMemory}
+              onForgetMemory={onForgetMemory}
+              onUpsertManualMemory={onUpsertManualMemory}
+              onGenerateMemoryPatchDraft={onGenerateMemoryPatchDraft}
+              onApplyMemoryPatchCandidate={onApplyMemoryPatchCandidate}
+            />
+            <MetricsPanel metrics={metrics} />
+          </>
+        )}
+
+        {activeTab === "events" && (
+          <>
+            <EventStreamPanel events={events} />
+            <MCPPanel
+              config={mcpConfig}
+              configValidation={mcpConfigValidation}
+              servers={mcpServers}
+              tools={mcpTools}
+              history={mcpHistory}
+              approvals={approvals}
+              isRunning={isRunning}
+              onDiscover={onDiscoverMCPTools}
+              onSaveConfig={onSaveMCPConfig}
+              onValidateConfig={onValidateMCPConfig}
+              onReplayHistory={onReplayMCPHistory}
+              onGrant={onGrantToolApproval}
+              onRevoke={onRevokeApproval}
+            />
+          </>
+        )}
+      </div>
     </aside>
   );
 }
+
+type TabKey = "overview" | "plan" | "code" | "preview" | "delivery" | "memory" | "events";
