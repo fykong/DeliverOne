@@ -131,6 +131,7 @@ class Services:
             task_state_machine=self.task_state_machine,
             skills=self.skill_runtime,
             ask_service=self.ask_service,
+            preview_smoke=self.preview_smoke,
         )
 
 

@@ -47,6 +47,7 @@ class AgentOrchestrator:
         task_state_machine: TaskStateMachineService,
         skills: SkillRuntime | None = None,
         ask_service: Any | None = None,
+        preview_smoke: Any | None = None,
     ) -> None:
         self.workflow = workflow
         self.conversations = conversations
@@ -65,6 +66,7 @@ class AgentOrchestrator:
         self.task_state_machine = task_state_machine
         self.skills = skills
         self.ask_service = ask_service
+        self.preview_smoke = preview_smoke
 
     def run(
         self,
@@ -373,37 +375,68 @@ class AgentOrchestrator:
         except Exception as error:
             return {"status": "error", "reason": f"页面级终检执行失败：{error}"}
 
-    def _looks_like_question(self, text: str, conversation_id: str | None = None) -> bool:
-        """确定性识别明显的提问/寒暄,直接走对话回答而非交付管道。
+    def _auto_visual_check_after_writes(self, conversation_id: str, plan: dict[str, Any]) -> bool:
+        """计划写入过代码且预览在运行时,自动做页面级确认(截图+DOM+需求断言)。"""
+        if not self.preview_smoke:
+            return False
+        wrote = any(
+            isinstance(step, dict)
+            and step.get("toolId") in {"code.apply_patch", "code.write_file"}
+            and step.get("status") == "completed"
+            for step in plan.get("steps", [])
+        )
+        if not wrote:
+            return False
+        already_checked = any(
+            isinstance(step, dict) and step.get("toolId") == "browser.preview_smoke"
+            for step in plan.get("steps", [])
+        )
+        if already_checked:
+            return False
+        running = [
+            process
+            for process in self.processes.list()
+            if process.get("conversationId") == conversation_id
+            and process.get("status") == "running"
+            and process.get("ports")
+        ]
+        if not running:
+            self.events.append(
+                conversation_id,
+                "verification.visual.skipped",
+                {"reason": "没有运行中的沙盒预览进程;启动预览后,每次代码写入会自动做页面级确认。"},
+                actor="runtime",
+            )
+            return False
+        try:
+            from server_py.agent.preview_assertions import build_preview_assertions
 
-        保守判定:出现任何开发动词/名词就视为需求;等待澄清回答时不触发
-        (用户的简短回答要走合并链路,不能被当成提问)。
-        """
-        cleaned = text.strip()
-        if not cleaned or len(cleaned) > 60:
-            return False
-        if conversation_id:
-            state = self.conversations.get(conversation_id)
-            turns = state.get("turns") if isinstance(state.get("turns"), list) else []
-            last_turn = turns[-1] if turns else None
-            if isinstance(last_turn, dict) and last_turn.get("phase") == "clarification":
-                return False
-        dev_markers = [
-            "新增", "添加", "增加", "修改", "实现", "开发", "修复", "优化", "删除", "重构",
-            "字段", "页面", "接口", "按钮", "展示", "显示", "支持", "功能", "需求", "上线",
-            "样式", "组件", "测试", "部署", "选A", "选B", "选C", "选D", "选 a", "选 b",
-        ]
-        lowered = cleaned.lower()
-        if any(marker.lower() in lowered for marker in dev_markers):
-            return False
-        question_markers = [
-            "你是谁", "你是什么", "能做什么", "会做什么", "怎么用", "如何使用", "是什么意思",
-            "什么意思", "为什么", "你好", "在吗", "谢谢", "介绍一下", "改了什么", "解释",
-            "什么情况", "进展", "做到哪", "干嘛", "帮我做什么",
-        ]
-        if any(marker in cleaned for marker in question_markers):
+            hints = build_preview_assertions(str(plan.get("requirement") or ""), None)
+            port = int(running[0]["ports"][0])
+            self.events.append(conversation_id, "verification.visual.begin", {"port": port}, actor="runtime")
+            report = self.preview_smoke.run(
+                conversation_id,
+                port,
+                "/",
+                timeout_seconds=45,
+                expected_texts=[str(item) for item in hints.get("expectedTexts", [])],
+                required_selectors=[str(item) for item in hints.get("requiredSelectors", [])],
+            )
+            self.events.append(
+                conversation_id,
+                "verification.visual.end",
+                {"ok": bool(report.get("ok")), "summary": str(report.get("summary"))[:200]},
+                actor="runtime",
+            )
             return True
-        return cleaned.endswith(("?", "？", "吗", "嘛"))
+        except Exception as error:
+            self.events.append(
+                conversation_id,
+                "verification.visual.failed",
+                {"error": str(error)},
+                actor="runtime",
+            )
+            return False
 
     def _answer_as_conversation(self, conversation_id: str, user_input: str, source: str) -> dict[str, Any]:
         self.events.append(
@@ -498,10 +531,8 @@ class AgentOrchestrator:
             raw_input_text = (requirement or "").strip()
             if not raw_input_text:
                 raise RuntimeError("需求不能为空。")
-            # 明显的提问/寒暄直接转对话回答(确定性启发式,省一次澄清调用);
-            # 不明显的交给 Clarifier 的 inputIntent 分类兜底。
-            if self.ask_service and self._looks_like_question(raw_input_text, conversation_id):
-                return self._answer_as_conversation(conversation_id, raw_input_text, source="heuristic")
+            # 意图判断完全交给模型(Clarifier 输出 inputIntent),不做关键词硬编码:
+            # 平台的理念就是让模型自己判断,枚举不可能覆盖所有情况。
             # 上一轮是澄清追问时,用户可能只回编号或简短答案;确定性合并
             # 「原始需求+澄清问题+用户回答」,不依赖模型自行从记忆拼装。
             next_requirement, merged_from_clarification = self._merge_clarification_answer(
@@ -656,6 +687,12 @@ class AgentOrchestrator:
             synced_plan = self.tool_call_plans.sync_latest_reports(conversation_id, plan["id"])
             if synced_plan:
                 plan = synced_plan
+            # 改完代码亲眼看运行结果:有运行中的预览时自动跑页面级 smoke,
+            # 截图/DOM/需求断言进入证据,Verifier 据实判断而非"自认为完成"。
+            if self._auto_visual_check_after_writes(conversation_id, plan):
+                synced_plan = self.tool_call_plans.sync_latest_reports(conversation_id, plan["id"])
+                if synced_plan:
+                    plan = synced_plan
             verification_memory = self.memory.snapshot(
                 conversation_id,
                 repository=plan.get("repository"),
