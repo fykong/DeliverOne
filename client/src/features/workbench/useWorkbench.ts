@@ -995,28 +995,33 @@ export function useWorkbench() {
     if (!plan) {
       throw new Error("工具计划执行后没有返回计划状态。");
     }
-    pushMessage({
-      role: "Agent",
-      text: formatExecutionResult(plan)
-    });
-    pushMessage({ role: "Agent", text: formatToolStepTrace(plan) });
-    const verifier = latestAudit(plan.audits, "Verifier");
-    const verifierMessage = formatVerifierMessage(plan, verifier);
-    if (verifierMessage) {
-      pushMessage({ role: "Agent", text: verifierMessage });
-    }
-    if (bundle.repairPlan) {
-      pushMessage({ role: "Agent", text: `${formatRepairPlanTrace(bundle.repairPlan)}\n后端 Orchestrator 已生成下一轮待确认修复计划，请审查右侧步骤后点击“确认并执行”。` });
-    } else if (plan.status === "failed" || plan.steps.some((step) => step.status === "failed")) {
-      pushMessage({ role: "Agent", text: bundle.repairLoop?.reason ?? repairStopMessage(plan) });
-    } else if (bundle.continuationLoop) {
-      if (bundle.continuationLoop.created && bundle.toolPlan && bundle.toolPlan.id !== plan.id) {
-        pushMessage({
-          role: "Agent",
-          text: `${formatRepairPlanTrace(bundle.toolPlan)}\n${bundle.continuationLoop.reason ?? "上一轮已完成但需求尚未落地，已生成下一阶段待确认计划。"}\n请审查右侧步骤后点击“确认并执行”。`
-        });
-      } else if (!bundle.continuationLoop.created && bundle.continuationLoop.reason) {
-        pushMessage({ role: "Agent", text: bundle.continuationLoop.reason });
+    if (bundle.narrative) {
+      // 后端模型已把整轮执行(做了什么/发现什么/判断/下一步)叙述成一条工作日志。
+      pushMessage({ role: "Agent", text: bundle.narrative });
+    } else {
+      pushMessage({
+        role: "Agent",
+        text: formatExecutionResult(plan)
+      });
+      pushMessage({ role: "Agent", text: formatToolStepTrace(plan) });
+      const verifier = latestAudit(plan.audits, "Verifier");
+      const verifierMessage = formatVerifierMessage(plan, verifier);
+      if (verifierMessage) {
+        pushMessage({ role: "Agent", text: verifierMessage });
+      }
+      if (bundle.repairPlan) {
+        pushMessage({ role: "Agent", text: `${formatRepairPlanTrace(bundle.repairPlan)}\n后端 Orchestrator 已生成下一轮待确认修复计划，请审查右侧步骤后点击“确认并执行”。` });
+      } else if (plan.status === "failed" || plan.steps.some((step) => step.status === "failed")) {
+        pushMessage({ role: "Agent", text: bundle.repairLoop?.reason ?? repairStopMessage(plan) });
+      } else if (bundle.continuationLoop) {
+        if (bundle.continuationLoop.created && bundle.toolPlan && bundle.toolPlan.id !== plan.id) {
+          pushMessage({
+            role: "Agent",
+            text: `${formatRepairPlanTrace(bundle.toolPlan)}\n${bundle.continuationLoop.reason ?? "上一轮已完成但需求尚未落地，已生成下一阶段待确认计划。"}\n请审查右侧步骤后点击“确认并执行”。`
+          });
+        } else if (!bundle.continuationLoop.created && bundle.continuationLoop.reason) {
+          pushMessage({ role: "Agent", text: bundle.continuationLoop.reason });
+        }
       }
     }
     await refreshConversations();

@@ -3,7 +3,6 @@ import { RefreshCw } from "lucide-react";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { CurrentContextPanel } from "./CurrentContextPanel";
 import { DeliveryPanel } from "./DeliveryPanel";
-import { EventStreamPanel } from "./EventStreamPanel";
 import { EvidencePanel } from "./EvidencePanel";
 import { MCPPanel } from "./MCPPanel";
 import { MemoryPanel } from "./MemoryPanel";
@@ -13,6 +12,7 @@ import { RollbackPanel } from "./RollbackPanel";
 import { RuntimePanel } from "./RuntimePanel";
 import { SandboxRuntimePanel } from "./SandboxRuntimePanel";
 import { SandboxFilePanel } from "./SandboxFilePanel";
+import { SkillsPanel } from "./SkillsPanel";
 import { ToolPlanPanel } from "./ToolPlanPanel";
 import { phaseLabels } from "./constants";
 import type { InspectorProps } from "./types";
@@ -96,7 +96,7 @@ export function Inspector({
     { key: "preview", label: "验证预览" },
     { key: "delivery", label: "交付" },
     { key: "memory", label: "记忆指标", badge: memory?.recall?.entryCount || undefined },
-    { key: "events", label: "事件 / MCP" }
+    { key: "events", label: "扩展" }
   ];
 
   return (
@@ -131,8 +131,13 @@ export function Inspector({
         {activeTab === "overview" && (
           <>
             <CurrentContextPanel preflight={preflight} repository={repository} sandbox={sandbox} agentTurn={agentTurn} skills={skills} isRunning={isRunning} onConfirmPlan={onConfirmPlan} />
-            <RuntimePanel snapshot={runtimeSnapshot} isRunning={isRunning} onEditTaskState={onEditTaskState} />
-            <SandboxRuntimePanel snapshot={sandboxRuntime} />
+            {/* 任务状态机/沙盒 Runtime 默认收起:状态快照只在动作后刷新,
+                实时性有限,常驻展示反而误导;需要时点开看。 */}
+            <details className="advancedPanels">
+              <summary>高级状态（任务状态机 / 沙盒 Runtime）</summary>
+              <RuntimePanel snapshot={runtimeSnapshot} isRunning={isRunning} onEditTaskState={onEditTaskState} />
+              <SandboxRuntimePanel snapshot={sandboxRuntime} />
+            </details>
           </>
         )}
 
@@ -229,7 +234,7 @@ export function Inspector({
 
         {activeTab === "events" && (
           <>
-            <EventStreamPanel events={events} />
+            <SkillsPanel skills={skills} />
             <MCPPanel
               config={mcpConfig}
               configValidation={mcpConfigValidation}

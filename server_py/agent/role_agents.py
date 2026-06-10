@@ -198,6 +198,76 @@ class AgentRoleSuite:
             },
         )
 
+    def narrate_execution(
+        self,
+        plan: dict[str, Any] | None,
+        verification: dict[str, Any] | None,
+        loop_note: str,
+        conversation_id: str | None = None,
+    ) -> str | None:
+        """把一轮执行讲成第一人称工作日志(纯文本,非 JSON)。
+
+        碎片化的里程碑结论("1 步完成、0 步失败")对 PM 没有信息量;
+        模型基于真实步骤结果+Verifier 结论叙述:做了什么(带文件名/命令/
+        数字等关键细节)、发现了什么、怎么判断、下一步是什么。
+        模型不可用或失败时返回 None,调用方回退到确定性里程碑文本。
+        """
+        model = self._default_model()
+        if not model or not plan:
+            return None
+        steps = []
+        for step in plan.get("steps", []):
+            if not isinstance(step, dict):
+                continue
+            data = (step.get("result") or {}).get("data") if isinstance(step.get("result"), dict) else {}
+            steps.append(
+                {
+                    "title": step.get("title"),
+                    "toolId": step.get("toolId"),
+                    "status": step.get("status"),
+                    "summary": step.get("summary"),
+                    "keyOutput": str((data or {}).get("stdoutTail") or (data or {}).get("stderrTail") or "")[-500:] or None,
+                }
+            )
+        payload = {
+            "requirement": str(plan.get("requirement") or "")[:400],
+            "steps": steps,
+            "verifier": {
+                "verdict": (verification or {}).get("verdict"),
+                "summary": (verification or {}).get("summary"),
+                "recommendation": (verification or {}).get("recommendation"),
+                "requirementCompleted": (verification or {}).get("requirementCompleted"),
+                "findings": [
+                    {"title": item.get("title"), "detail": str(item.get("detail") or "")[:200]}
+                    for item in ((verification or {}).get("findings") or [])[:4]
+                    if isinstance(item, dict)
+                ],
+            },
+            "next": loop_note,
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": "\n".join(
+                    [
+                        "你是代码交付 Agent 本人,刚执行完一轮工具计划,现在向产品经理口头汇报这一轮。",
+                        "用中文第一人称,2-4 个自然段,自然衔接,像同事汇报,不要标题、不要编号列表、不要'本轮''该步骤'这类公文腔。",
+                        "必须包含:你实际做了什么(保留关键细节:改了哪个文件、跑了什么命令、几个测试通过/失败、发现的具体问题);你对结果的判断(用自己的话消化 Verifier 的结论,别照抄);接下来要做什么或需要用户做什么(payload.next 是系统已经安排好的下一步,如实转述)。",
+                        "只依据 payload 里的事实,不要编造;数字、文件名、命令原样保留。",
+                        "直接输出汇报正文,不要 JSON,不要任何前后缀。",
+                    ]
+                ),
+            },
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
+        ]
+        try:
+            reply = self.client.complete(model, messages).strip()
+            if conversation_id and self.metrics:
+                self.metrics.record_model_call(conversation_id, "narrator", model, self.client.last_metrics)
+            return reply or None
+        except Exception:
+            return None
+
     def verify_execution(
         self,
         plan: dict[str, Any] | None,

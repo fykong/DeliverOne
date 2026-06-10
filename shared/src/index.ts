@@ -53,6 +53,9 @@ export interface SkillSummary {
   description: string;
   riskLevel: "low" | "medium" | "high";
   requiresConfirmation: boolean;
+  kind?: string;
+  alwaysOn?: boolean;
+  triggers?: string[];
   tools: string[];
   runtime?: {
     selectedReason: string;
@@ -1152,6 +1155,8 @@ export interface AgentOrchestratorBundle {
     trigger?: string;
     reason?: string;
   } | null;
+  /** 模型对整轮执行的第一人称工作日志叙述(替代碎片化里程碑消息)。 */
+  narrative?: string | null;
   checkpoints: CheckpointManifest[];
   events: RuntimeEvent[];
   processes: ManagedProcess[];

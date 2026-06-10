@@ -726,48 +726,56 @@ class AgentOrchestrator:
                 },
                 actor="agent",
             )
-            # 执行结果与 Verifier 结论持久化到消息流:聊天历史是用户回看的主入口,
-            # 只在前端 push 的话刷新/切换对话后整段执行历程消失。
+            # 先决定下一步(修复/推进/闭环),再让模型把整轮执行+下一步
+            # 叙述成一段第一人称工作日志——碎片化的一句话里程碑对 PM 没有
+            # 信息量。叙述持久化到消息流,模型不可用时回退确定性文本。
             steps = [step for step in plan.get("steps", []) if isinstance(step, dict)]
             done_count = sum(1 for step in steps if step.get("status") == "completed")
             failed_count = sum(1 for step in steps if step.get("status") == "failed")
             verdict_label = {"pass": "通过", "warning": "有风险，需审查", "blocked": "未通过，需要修复"}.get(
                 str(verification.get("verdict")), str(verification.get("verdict"))
             )
-            self.conversations.record_milestone(
-                conversation_id,
-                f"工具计划执行结束：{done_count} 步完成、{failed_count} 步失败。"
-                f"Verifier：{verdict_label}。{verification.get('summary') or ''}",
-            )
             repair_plan, repair_loop = self._maybe_create_repair_plan(conversation_id, plan)
+            continuation_plan, continuation_loop = (None, {"created": False}) if repair_plan else self._maybe_create_continuation_plan(
+                conversation_id, plan
+            )
             if repair_plan:
-                self.conversations.record_milestone(
-                    conversation_id,
-                    f"已自动生成修复计划 #{repair_plan.get('repairSequence')}（{len(repair_plan.get('steps') or [])} 步），等待确认执行。",
+                loop_note = (
+                    f"系统已自动生成修复计划 #{repair_plan.get('repairSequence')}"
+                    f"（{len(repair_plan.get('steps') or [])} 步），等待用户在右侧确认执行。"
                 )
+            elif continuation_plan:
+                loop_note = f"需求尚未完成，系统已生成推进计划（{len(continuation_plan.get('steps') or [])} 步），等待用户确认执行。"
+            else:
+                loop_note = str(continuation_loop.get("reason") or "本轮执行闭环结束。")
+            fallback_text = (
+                f"工具计划执行结束：{done_count} 步完成、{failed_count} 步失败。"
+                f"Verifier：{verdict_label}。{verification.get('summary') or ''}\n{loop_note}"
+            )
+            narrative = self.roles.narrate_execution(plan, verification, loop_note, conversation_id) or fallback_text
+            self.conversations.record_milestone(conversation_id, narrative)
+            if repair_plan:
                 return {
                     "tool_plan": repair_plan,
                     "executed_tool_plan": plan,
                     "repair_plan": repair_plan,
                     "repair_loop": repair_loop,
+                    "narrative": narrative,
                 }
-            continuation_plan, continuation_loop = self._maybe_create_continuation_plan(conversation_id, plan)
             if continuation_plan:
-                self.conversations.record_milestone(
-                    conversation_id,
-                    f"需求尚未完成，已生成推进计划（{len(continuation_plan.get('steps') or [])} 步），等待确认执行。",
-                )
                 return {
                     "tool_plan": continuation_plan,
                     "executed_tool_plan": plan,
                     "repair_loop": repair_loop,
                     "continuation_loop": continuation_loop,
+                    "narrative": narrative,
                 }
             return {
                 "tool_plan": plan,
                 "executed_tool_plan": plan,
                 "repair_loop": repair_loop,
                 "continuation_loop": continuation_loop,
+                "narrative": narrative,
             }
 
         if action == "repair_failed_plan":
@@ -804,6 +812,7 @@ class AgentOrchestrator:
         repair_loop: dict[str, Any] | None = None,
         continuation_loop: dict[str, Any] | None = None,
         ask: dict[str, Any] | None = None,
+        narrative: str | None = None,
     ) -> dict[str, Any]:
         state = self.conversations.get(conversation_id)
         current_plan = tool_plan if tool_plan is not None else self.tool_call_plans.get_plan(conversation_id)
@@ -839,6 +848,7 @@ class AgentOrchestrator:
             "repairLoop": repair_loop,
             "continuationLoop": continuation_loop,
             "ask": ask,
+            "narrative": narrative,
             "checkpoints": checkpoints,
             "events": events,
             "processes": processes,

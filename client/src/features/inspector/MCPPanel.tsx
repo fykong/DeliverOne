@@ -216,14 +216,17 @@ export function MCPPanel({
     <section className="panel">
       <h3>
         <PlugZap size={16} />
-        MCP 工具
+        外部工具（MCP）
         <small>{externalTools.length ? `${externalTools.length} 个外部工具` : `${tools.length} 个可用工具`}</small>
       </h3>
+      <p className="panelHint">
+        MCP 是给 Agent 接外部能力的插件协议（如联网抓取、知识图谱）。已预装 3 个官方服务器；外部工具调用前都要经过你的授权。
+      </p>
 
       <div className="mcpSummary">
         <div>
           <strong>{servers.length}</strong>
-          <span>Server</span>
+          <span>服务器</span>
         </div>
         <div>
           <strong>{externalTools.length}</strong>
@@ -231,18 +234,30 @@ export function MCPPanel({
         </div>
         <div>
           <strong>{activeApprovals.length}</strong>
-          <span>授权中</span>
+          <span>已授权</span>
         </div>
       </div>
 
       <div className="mcpActions">
-        <button className="inspectorButton secondary" type="button" disabled={isRunning} onClick={onDiscover}>
+        <button
+          className="inspectorButton secondary"
+          type="button"
+          disabled={isRunning}
+          onClick={onDiscover}
+          title="连接每个已配置的服务器,拉取它们提供的工具清单;首次连接会自动下载服务器程序,较慢"
+        >
           <RefreshCw size={16} />
-          发现工具
+          连接并发现工具
         </button>
-        <button className="inspectorButton secondary" type="button" disabled={isRunning} onClick={() => setIsEditingConfig((value) => !value)}>
+        <button
+          className="inspectorButton secondary"
+          type="button"
+          disabled={isRunning}
+          onClick={() => setIsEditingConfig((value) => !value)}
+          title="增删服务器(JSON 配置,兼容 Claude Code 的 .mcp.json 格式,可直接粘贴)"
+        >
           <FileJson2 size={16} />
-          编辑配置
+          {isEditingConfig ? "收起配置" : "管理服务器"}
         </button>
       </div>
 
@@ -255,6 +270,9 @@ export function MCPPanel({
 
       {isEditingConfig && (
         <div className="mcpConfigEditor">
+          <p className="panelHint">
+            兼容 Claude Code 的 .mcp.json：可以直接粘贴 {"{"}"mcpServers": {"{"}…{"}"}{"}"} 形式的配置；支持 ${"{"}VAR{"}"} 环境变量。先「校验」再「保存」。
+          </p>
           <textarea value={configText} onChange={(event) => setConfigText(event.target.value)} spellCheck={false} />
           {configError && <p>{configError}</p>}
           {configValidation && (

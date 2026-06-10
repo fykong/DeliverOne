@@ -240,6 +240,74 @@ body.isResizing {
   line-height: 1.55;
 }
 
+.advancedPanels {
+  margin-top: 10px;
+}
+
+.advancedPanels > summary {
+  cursor: pointer;
+  color: #84897d;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 0;
+}
+
+.skillList {
+  display: grid;
+  gap: 6px;
+}
+
+.skillRow {
+  border: 1px solid #ddd9cc;
+  border-radius: 8px;
+  background: #f7f5ee;
+  overflow: hidden;
+}
+
+.skillHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.skillBadges {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.skillBadge {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  color: #6b6f63;
+  background: #ecebe2;
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.skillBadge.always {
+  color: #2f6f4f;
+  background: #eaf5ef;
+}
+
+.skillDetail {
+  padding: 0 10px 10px;
+  font-size: 12px;
+  color: #4a4d44;
+}
+
+.skillDetail small {
+  color: #84897d;
+}
+
 .ledgerConfidence {
   margin-left: 8px;
   font-style: normal;
