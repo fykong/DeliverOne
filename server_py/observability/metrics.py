@@ -62,6 +62,8 @@ class MetricStore:
         rows = self.list(conversation_id)
         model_rows = [row for row in rows if row.get("kind") == "model"]
         tool_rows = [row for row in rows if row.get("kind") == "tool"]
+        model_latencies = [int(row.get("latencyMs") or 0) for row in model_rows if row.get("latencyMs")]
+        model_duration = sum(model_latencies)
         return {
             "conversationId": conversation_id,
             "modelCallCount": len(model_rows),
@@ -70,6 +72,11 @@ class MetricStore:
             "promptTokens": sum(int(row.get("promptTokens") or 0) for row in model_rows),
             "completionTokens": sum(int(row.get("completionTokens") or 0) for row in model_rows),
             "totalEstimatedCost": round(sum(float(row.get("estimatedCost", {}).get("amount") or 0) for row in model_rows), 8),
+            "pricingConfigured": any(bool((row.get("estimatedCost") or {}).get("pricingConfigured")) for row in model_rows),
+            "modelDurationMs": model_duration,
+            "avgModelLatencyMs": round(model_duration / len(model_latencies)) if model_latencies else 0,
+            "maxModelLatencyMs": max(model_latencies) if model_latencies else 0,
+            "avgPromptTokens": round(sum(int(row.get("promptTokens") or 0) for row in model_rows) / len(model_rows)) if model_rows else 0,
             "toolDurationMs": sum(int(row.get("durationMs") or 0) for row in tool_rows),
             "failedToolCalls": len([row for row in tool_rows if not row.get("ok")]),
             "updatedAt": now_iso(),

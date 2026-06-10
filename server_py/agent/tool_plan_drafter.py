@@ -18,6 +18,7 @@ SANDBOX_PLATFORM_RULE = (
 
 from server_py.audit.plan_auditor import PlanAuditor
 from server_py.agent.preview_assertions import build_preview_assertions
+from server_py.memory.memory_service import slim_memory_for_model
 from server_py.models.ark_client import ArkClient
 from server_py.models.model_config import ModelConfigService
 from server_py.observability.metrics import MetricStore
@@ -297,7 +298,7 @@ class ToolPlanDrafter:
                         },
                         "repository": repository,
                         "sandbox": sandbox,
-                        "memory": memory_snapshot,
+                        "memory": slim_memory_for_model(memory_snapshot),
                         "skillRuntime": [
                             {
                                 "id": skill.get("id"),
@@ -526,7 +527,7 @@ class ToolPlanDrafter:
                         "repository": repository,
                         "sandbox": sandbox,
                         "previousAgentPlan": previous_reply,
-                        "memory": memory_snapshot,
+                        "memory": slim_memory_for_model(memory_snapshot),
                         "previewAcceptanceHints": preview_acceptance_hints,
                         "taskState": (memory_snapshot or {}).get("taskState") if isinstance(memory_snapshot, dict) else None,
                         "skillRuntime": [
@@ -634,7 +635,7 @@ class ToolPlanDrafter:
                         },
                         "repository": repository,
                         "sandbox": sandbox,
-                        "memory": memory_snapshot,
+                        "memory": slim_memory_for_model(memory_snapshot),
                         "taskState": (memory_snapshot or {}).get("taskState") if isinstance(memory_snapshot, dict) else None,
                         "allowedTools": [
                             {
@@ -719,7 +720,7 @@ class ToolPlanDrafter:
                             "audits": current_plan.get("audits", [])[-6:],
                             "steps": current_steps,
                         },
-                        "memory": memory_snapshot,
+                        "memory": slim_memory_for_model(memory_snapshot),
                         "taskState": (memory_snapshot or {}).get("taskState") if isinstance(memory_snapshot, dict) else None,
                         "previewAcceptanceHints": preview_acceptance_hints,
                         "allowedTools": [

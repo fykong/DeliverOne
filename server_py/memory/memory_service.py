@@ -19,6 +19,51 @@ SOURCE_EXTENSIONS = {".css", ".html", ".js", ".jsx", ".md", ".mjs", ".py", ".ts"
 AGENT_DOC_NAMES = ("AGENTS.override.md", "AGENTS.md")
 
 
+def slim_memory_for_model(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    """把完整 memory snapshot 裁剪成喂模型用的精简视图。
+
+    完整 snapshot(~13.8 万字符)里 longTerm/patterns/curatedMemory 的原始全量
+    转储占 ~75%,而模型真正需要的是 recall(已检索排序的精华子集)+ contextPack
+    (叙事)+ taskState/taskLedger(人工控制)。原始转储留给 UI 记忆面板和诊断,
+    不进模型 prompt——直接把每次角色调用的 prompt 从 ~6 万 token 压到 ~1.5 万。
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    recall = snapshot.get("recall") if isinstance(snapshot.get("recall"), dict) else {}
+    recall_items = recall.get("items") if isinstance(recall.get("items"), list) else []
+    slim_items = [
+        {
+            "title": item.get("title"),
+            "scope": item.get("scope"),
+            "reason": item.get("reason"),
+            "score": item.get("score"),
+        }
+        for item in recall_items[:10]
+        if isinstance(item, dict)
+    ]
+    ledger = snapshot.get("taskLedger") if isinstance(snapshot.get("taskLedger"), dict) else None
+    slim_ledger = None
+    if ledger:
+        stages = ledger.get("stages") if isinstance(ledger.get("stages"), list) else []
+        slim_ledger = {
+            "status": ledger.get("status"),
+            "stages": [
+                {"id": s.get("id"), "title": s.get("title"), "status": s.get("status")}
+                for s in stages
+                if isinstance(s, dict)
+            ],
+        }
+    return {
+        "conversationId": snapshot.get("conversationId"),
+        "repo": (snapshot.get("repo") or {}).get("summary") if isinstance(snapshot.get("repo"), dict) else None,
+        "contextPack": snapshot.get("contextPack"),
+        "recall": {"query": recall.get("query"), "items": slim_items},
+        "taskState": snapshot.get("taskState"),
+        "taskLedger": slim_ledger,
+        "searchIntent": snapshot.get("searchIntent"),
+    }
+
+
 def _meaningful_markdown(text: str, ignored_lines: set[str]) -> str:
     lines = []
     for line in text.splitlines():

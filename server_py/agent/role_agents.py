@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from server_py.core.json_io import now_iso
+from server_py.memory.memory_service import slim_memory_for_model
 from server_py.models.ark_client import ArkClient
 from server_py.models.model_config import ModelConfigService
 from server_py.observability.metrics import MetricStore
@@ -80,7 +81,7 @@ class AgentRoleSuite:
                 "requirement": requirement,
                 "repository": repository,
                 "sandbox": sandbox,
-                "memory": memory_snapshot,
+                "memory": slim_memory_for_model(memory_snapshot),
                 "clarifyDimensions": CLARIFY_DIMENSIONS,
                 "skillGuidance": skill_guidance,
                 "hardRules": [
@@ -163,7 +164,7 @@ class AgentRoleSuite:
             task="审查工具计划是否安全、是否读取上下文、是否包含 diff/checkpoint/验证。发现阻断时必须给出原因。",
             payload={
                 "plan": self._compact_plan(plan),
-                "memory": memory_snapshot,
+                "memory": slim_memory_for_model(memory_snapshot),
                 "hardRules": [
                     "空计划必须 blocked。",
                     "写入步骤必须 requiresCheckpoint=true。",
@@ -198,7 +199,7 @@ class AgentRoleSuite:
             task="基于工具结果、验证输出、diff 和审计记录判断执行是否通过；失败时给出修复方向。",
             payload={
                 "plan": self._compact_plan(plan) if plan else None,
-                "memory": memory_snapshot,
+                "memory": slim_memory_for_model(memory_snapshot),
                 "hardRules": [
                     "存在 failed 步骤时必须 blocked。",
                     "工具结果缺失时至少 warning。",

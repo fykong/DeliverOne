@@ -866,6 +866,11 @@ export interface RuntimeMetricSummary {
   promptTokens: number;
   completionTokens: number;
   totalEstimatedCost: number;
+  pricingConfigured?: boolean;
+  modelDurationMs?: number;
+  avgModelLatencyMs?: number;
+  maxModelLatencyMs?: number;
+  avgPromptTokens?: number;
   toolDurationMs: number;
   failedToolCalls: number;
   updatedAt: string;
