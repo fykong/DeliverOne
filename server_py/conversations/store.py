@@ -114,11 +114,12 @@ class ConversationStore:
             self._transition(state, "sandbox_ready", "sandbox.ready", "runtime", "当前对话沙盒已创建。")
             # 持久化里程碑消息:刷新/切换对话后聊天区仍能看到仓库接入记录。
             source_label = "GitHub" if (repository or {}).get("sourceType") == "github" else "本地"
-            branch = (repository or {}).get("branch") or "?"
-            scripts = ", ".join(sorted(((repository or {}).get("scripts") or {}).keys())) or "无"
-            state.setdefault("messages", []).append(
-                self._message("agent", f"{source_label}仓库已接入沙盒。分支: {branch}; 脚本: {scripts}")
-            )
+            branch = (repository or {}).get("branch") or "未知"
+            scripts = "、".join(sorted(((repository or {}).get("scripts") or {}).keys()))
+            text = f"{source_label}项目已复制到本次对话的隔离沙盒（基于分支 {branch}），原始项目不会被改动。"
+            if scripts:
+                text += f"检测到项目自带命令：{scripts}——后续跑测试、起预览会自动选用合适的。"
+            state.setdefault("messages", []).append(self._message("agent", text))
         return self.save(state)
 
     def record_tool_call_plan(self, conversation_id: str, plan: dict[str, Any]) -> dict[str, Any]:

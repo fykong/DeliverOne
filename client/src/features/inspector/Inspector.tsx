@@ -175,10 +175,8 @@ export function Inspector({
             />
             <RollbackPanel
               conversationId={conversationId}
-              checkpoints={checkpoints}
               sandboxRuntime={sandboxRuntime}
               isRunning={isRunning}
-              onRollbackCheckpoint={onRollbackCheckpoint}
               onRollbackOriginal={onRollbackOriginal}
             />
           </>

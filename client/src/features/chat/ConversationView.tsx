@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Loader2, MessageCircle, Play } from "lucide-react";
-import type { SearchIntentSnapshot, TaskLedgerSnapshot } from "@workbench/shared";
+import { FolderGit2, Loader2, Send } from "lucide-react";
+import type { RepositoryStatus, SandboxStatus, SearchIntentSnapshot, TaskLedgerSnapshot } from "@workbench/shared";
 import type { ConversationMessage } from "./types";
 
 interface ConversationViewProps {
@@ -10,12 +10,13 @@ interface ConversationViewProps {
   taskLedger: TaskLedgerSnapshot | null;
   isRunning: boolean;
   executionStatus: string | null;
-  canSend: boolean;
+  repository: RepositoryStatus | null;
+  sandbox: SandboxStatus | null;
   autopilotEnabled: boolean;
   onAutopilotChange: (value: boolean) => void;
   onRequirementChange: (value: string) => void;
   onRunAgent: () => void;
-  onAskAgent: () => void;
+  onOpenRepoModal: () => void;
 }
 
 export function ConversationView({
@@ -25,16 +26,18 @@ export function ConversationView({
   taskLedger,
   isRunning,
   executionStatus,
-  canSend,
+  repository,
+  sandbox,
   autopilotEnabled,
   onAutopilotChange,
   onRequirementChange,
   onRunAgent,
-  onAskAgent,
+  onOpenRepoModal,
 }: ConversationViewProps) {
   const visibleMessages = messages.filter((message) => !isModelSwitchNotice(message.text));
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
+  const repoName = repository?.source.split(/[\\/]/).pop() ?? null;
 
   // 新消息追加时自动滚到底,但用户已手动上滚查看历史时不打扰。
   useEffect(() => {
@@ -81,8 +84,8 @@ export function ConversationView({
         <textarea
           value={requirement}
           onChange={(event) => onRequirementChange(event.target.value)}
-          aria-label="输入需求"
-          placeholder="描述你希望 Agent 在当前沙盒仓库里完成的需求..."
+          aria-label="输入需求或提问"
+          placeholder={sandbox ? "描述需求或直接提问，我会自动判断…" : "可以先提问；要改代码请先接入仓库…"}
         />
         <div className="composerToggle">
           <label>
@@ -98,23 +101,29 @@ export function ConversationView({
           <small>自动确认方案与工具计划，直达提测；澄清问题与高危操作仍会停下</small>
         </div>
         <div className="composerActions">
-          <span>
-            {canSend
-              ? autopilotEnabled
-                ? "托管模式：自动确认并持续执行，直达提测"
-                : "提问 = 聊一聊（问项目/改动/方案）；发送给 Agent = 进入开发交付"
-              : "提问可随时用；发送开发需求前先在左侧接入一个仓库"}
+          <span className="repoLine">
+            <FolderGit2 size={13} />
+            {sandbox && repoName ? (
+              <>
+                沙盒就绪：{repoName}
+                {repository?.branch ? ` · ${repository.branch}` : ""}
+                <button type="button" className="linkLikeButton" onClick={onOpenRepoModal} disabled={isRunning}>
+                  更换仓库
+                </button>
+              </>
+            ) : (
+              <>
+                未接入仓库——提问可直接发，改代码请先
+                <button type="button" className="linkLikeButton" onClick={onOpenRepoModal} disabled={isRunning}>
+                  接入仓库
+                </button>
+              </>
+            )}
           </span>
-          <div className="composerButtons">
-            <button onClick={onAskAgent} className="secondary" type="button" disabled={isRunning || !requirement.trim()} title="基于当前会话上下文对话回答，不进入开发流程">
-              <MessageCircle size={16} />
-              提问
-            </button>
-            <button onClick={onRunAgent} className="primary" type="button" disabled={isRunning || !canSend || !requirement.trim()}>
-              <Play size={18} />
-              {isRunning ? "Agent 处理中" : "发送给 Agent"}
-            </button>
-          </div>
+          <button onClick={onRunAgent} className="primary" type="button" disabled={isRunning || !requirement.trim()}>
+            <Send size={16} />
+            {isRunning ? "处理中" : "发送"}
+          </button>
         </div>
       </footer>
     </>
@@ -128,7 +137,10 @@ function TaskLedgerStrip({
   taskLedger: TaskLedgerSnapshot | null;
   searchIntent: SearchIntentSnapshot | null;
 }) {
-  if (!taskLedger && !searchIntent) {
+  const understanding = (taskLedger?.currentUnderstanding || searchIntent?.summary || "").trim();
+  // 没有真实任务理解时整块隐藏——"尚未形成/等待"之类的占位文案对用户是噪音,
+  // 还会带出"先接入仓库"等可能已过期的下一步提示。
+  if (!understanding || understanding.startsWith("尚未") || understanding.startsWith("等待")) {
     return null;
   }
 
@@ -138,37 +150,39 @@ function TaskLedgerStrip({
   const nextSteps = firstValues(taskLedger?.nextSteps, undefined, 3);
   const phases = (taskLedger?.phases ?? []).slice(0, 7);
   const rawSource = intent?.source || searchIntent?.source || "rules";
-  // 对 PM 翻译内部术语:rules=规则分析(模型未参与),model=模型分析。
-  const source = rawSource === "model" ? "模型分析" : rawSource === "rules" ? "规则分析" : rawSource;
   const confidence = intent?.confidence ?? searchIntent?.confidence;
+  // 只有模型分析才值得标注置信度;内部的规则回退对用户没有意义,不展示来源。
+  const confidenceLabel =
+    rawSource === "model" && typeof confidence === "number" ? `模型理解 · ${Math.round(confidence * 100)}%` : null;
 
   return (
-    <aside className="taskLedgerStrip" aria-label="任务账本">
+    <aside className="taskLedgerStrip" aria-label="任务理解">
       <div>
-        <span>当前理解</span>
-        <strong>{taskLedger?.currentUnderstanding || searchIntent?.summary || "等待 Agent 形成任务理解。"}</strong>
+        <span>当前理解{confidenceLabel ? <em className="ledgerConfidence">{confidenceLabel}</em> : null}</span>
+        <strong>{understanding}</strong>
       </div>
-      <dl>
-        <div>
-          <dt>来源</dt>
-          <dd>
-            {source}
-            {typeof confidence === "number" ? ` · ${Math.round(confidence * 100)}%` : ""}
-          </dd>
-        </div>
-        <div>
-          <dt>检索</dt>
-          <dd>{queries.length ? queries.join("；") : "等待生成"}</dd>
-        </div>
-        <div>
-          <dt>文件</dt>
-          <dd>{files.length ? files.join("；") : "暂无明确文件"}</dd>
-        </div>
-        <div>
-          <dt>下一步</dt>
-          <dd>{nextSteps.length ? nextSteps.join("；") : "等待用户发送需求"}</dd>
-        </div>
-      </dl>
+      {(queries.length > 0 || files.length > 0 || nextSteps.length > 0) && (
+        <dl>
+          {queries.length > 0 && (
+            <div>
+              <dt>检索</dt>
+              <dd>{queries.join("；")}</dd>
+            </div>
+          )}
+          {files.length > 0 && (
+            <div>
+              <dt>文件</dt>
+              <dd>{files.join("；")}</dd>
+            </div>
+          )}
+          {nextSteps.length > 0 && (
+            <div>
+              <dt>下一步</dt>
+              <dd>{nextSteps.join("；")}</dd>
+            </div>
+          )}
+        </dl>
+      )}
       {!!phases.length && (
         <ol className="taskLedgerPhases" aria-label="任务阶段">
           {phases.map((phase) => (

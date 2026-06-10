@@ -1,19 +1,14 @@
 import { useState } from "react";
-import { Bot, FolderGit2, Github, Plus, RotateCcw, Trash2 } from "lucide-react";
-import type { AgentConversationSummary, RepositoryStatus } from "@workbench/shared";
+import { Bot, PanelLeftClose, PanelLeftOpen, Plus, Trash2 } from "lucide-react";
+import type { AgentConversationSummary } from "@workbench/shared";
 import { phaseLabels } from "../inspector/constants";
 
 interface SidebarProps {
   conversations: AgentConversationSummary[];
   activeConversationId: string;
-  localPath: string;
-  githubUrl: string;
-  repository: RepositoryStatus | null;
   isRunning: boolean;
-  onLocalPathChange: (value: string) => void;
-  onGithubUrlChange: (value: string) => void;
-  onConnectLocal: () => void;
-  onConnectGithub: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onNewConversation: () => void;
   onSelectConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
@@ -23,14 +18,9 @@ interface SidebarProps {
 export function Sidebar({
   conversations,
   activeConversationId,
-  localPath,
-  githubUrl,
-  repository,
   isRunning,
-  onLocalPathChange,
-  onGithubUrlChange,
-  onConnectLocal,
-  onConnectGithub,
+  collapsed,
+  onToggleCollapsed,
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
@@ -42,59 +32,45 @@ export function Sidebar({
   );
   const hiddenCount = conversations.length - visibleConversations.length;
 
+  if (collapsed) {
+    return (
+      <aside className="sidebar collapsed">
+        <button className="iconRailButton" type="button" onClick={onToggleCollapsed} title="展开侧栏" aria-label="展开侧栏">
+          <PanelLeftOpen size={18} />
+        </button>
+        <button className="iconRailButton" type="button" onClick={onNewConversation} disabled={isRunning} title="新建对话" aria-label="新建对话">
+          <Plus size={18} />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="sidebar">
       <div className="brand">
-        <Bot size={22} />
-        <span>Agent 工作台</span>
+        <Bot size={18} />
+        <span>DeliverOne</span>
+        <button className="iconRailButton brandCollapse" type="button" onClick={onToggleCollapsed} title="收起侧栏" aria-label="收起侧栏">
+          <PanelLeftClose size={16} />
+        </button>
       </div>
 
       <button className="newButton" type="button" onClick={onNewConversation} disabled={isRunning}>
-        <Plus size={18} />
+        <Plus size={16} />
         新建对话
       </button>
-
-      <section className="sideSection">
-        <div className="sideTitle">仓库</div>
-        <p className="sideHelp">把一个项目复制进隔离沙盒让 AI 修改，原始项目不受影响。</p>
-        <label className="sideField">
-          <span>本地路径</span>
-          <input value={localPath} onChange={(event) => onLocalPathChange(event.target.value)} placeholder="C:\\path\\to\\repo" title="你电脑上的项目文件夹绝对路径" />
-        </label>
-        <button className="sideAction" type="button" onClick={onConnectLocal} disabled={isRunning || !localPath.trim()} title="复制本地文件夹到沙盒">
-          <FolderGit2 size={16} />
-          接入本地仓库
-        </button>
-
-        <label className="sideField">
-          <span>GitHub</span>
-          <input value={githubUrl} onChange={(event) => onGithubUrlChange(event.target.value)} placeholder="https://github.com/..." />
-        </label>
-        <button className="sideAction" type="button" onClick={onConnectGithub} disabled={isRunning || !githubUrl.trim()}>
-          <Github size={16} />
-          拉取到沙盒
-        </button>
-
-        {repository && (
-          <div className="repoStatus">
-            <strong>{repository.sourceType === "github" ? "GitHub 仓库" : "本地仓库"}</strong>
-            <span>{repository.branch ?? "未识别分支"}</span>
-            <small>{Object.keys(repository.scripts).length} 个 scripts</small>
-          </div>
-        )}
-      </section>
 
       <section className="sideSection historySection">
         <div className="sideTitle">
           <span>历史对话</span>
           {hiddenCount > 0 && (
             <button type="button" className="linkButton" onClick={() => setShowHidden((value) => !value)}>
-              {showHidden ? "收起开发记录" : `显示 ${hiddenCount} 条开发记录`}
+              {showHidden ? "收起开发记录" : `+${hiddenCount} 条开发记录`}
             </button>
           )}
           {onCleanup && (
             <button type="button" className="linkButton" onClick={onCleanup} disabled={isRunning} title="删除残留的空会话目录,释放磁盘">
-              <Trash2 size={13} />
+              <Trash2 size={12} />
               清理
             </button>
           )}
@@ -110,12 +86,8 @@ export function Sidebar({
             </button>
           </div>
         ))}
+        {visibleConversations.length === 0 && <p className="sideEmpty">还没有对话。</p>}
       </section>
-
-      <div className="sideHint">
-        <RotateCcw size={15} />
-        所有写入先进入当前对话沙盒，确认后再交付。
-      </div>
     </aside>
   );
 }

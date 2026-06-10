@@ -1,8 +1,6 @@
 import { FileText, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { CheckpointManifest } from "../../shared/api";
 import { getRollbackReport, getRollbackReports } from "../../shared/api";
-import { useConfirm } from "../../shared/ConfirmDialog";
 import type { SandboxRuntimeSnapshot } from "@workbench/shared";
 import type { RollbackDiffSnapshot, RollbackReportDetail, RollbackReportSummary } from "@workbench/shared";
 import { RollbackConfirmationView } from "./RollbackConfirmationView";
@@ -10,15 +8,12 @@ import { UnifiedDiffViewer } from "./UnifiedDiffViewer";
 
 interface RollbackPanelProps {
   conversationId: string;
-  checkpoints: CheckpointManifest[];
   sandboxRuntime: SandboxRuntimeSnapshot | null;
   isRunning: boolean;
-  onRollbackCheckpoint: (checkpointId: string) => void;
   onRollbackOriginal: () => void;
 }
 
-export function RollbackPanel({ conversationId, checkpoints, sandboxRuntime, isRunning, onRollbackCheckpoint, onRollbackOriginal }: RollbackPanelProps) {
-  const confirm = useConfirm();
+export function RollbackPanel({ conversationId, sandboxRuntime, isRunning, onRollbackOriginal }: RollbackPanelProps) {
   const report = sandboxRuntime?.rollback.report ?? null;
   const [reports, setReports] = useState<RollbackReportSummary[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
@@ -68,33 +63,9 @@ export function RollbackPanel({ conversationId, checkpoints, sandboxRuntime, isR
     <section className="panel">
       <h3>
         <RotateCcw size={16} />
-        回退
+        回退记录
       </h3>
-      <div className="checkpointList">
-        {checkpoints.slice(0, 4).map((checkpoint) => (
-          <div className="checkpointRow" key={checkpoint.id}>
-            <div>
-              <strong>{checkpoint.label}</strong>
-              <span>{checkpoint.files.length} 个文件</span>
-            </div>
-            <button
-              type="button"
-              disabled={isRunning}
-              onClick={() => {
-                void confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`, {
-                  confirmLabel: "回退",
-                  cancelLabel: "取消",
-                }).then((ok) => {
-                  if (ok) onRollbackCheckpoint(checkpoint.id);
-                });
-              }}
-            >
-              回退
-            </button>
-          </div>
-        ))}
-        {checkpoints.length === 0 && <p>还没有 checkpoint。首次写代码前会自动创建。</p>}
-      </div>
+      <p className="panelHint">按检查点/按文件回退请在上方「回退」页签操作；这里查看回退证据与历史报告，或一键回到原始状态。</p>
       {report && (
         <div className="rollbackEvidence">
           <strong>最近回退证据</strong>

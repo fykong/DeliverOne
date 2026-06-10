@@ -95,6 +95,162 @@ button:disabled {
   background: #285f44;
 }
 
+.repoDialog {
+  width: min(520px, calc(100vw - 48px));
+  background: #fbfaf6;
+  border: 1px solid #d6d3c6;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(20, 23, 19, 0.28);
+  padding: 20px 22px 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.repoDialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.repoDialogHeader strong {
+  font-size: 16px;
+}
+
+.repoDialogIntro {
+  margin: 0;
+  color: #4a4d44;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.repoOption {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #ddd9cc;
+  border-radius: 10px;
+  background: #f4f2ea;
+  padding: 12px 14px;
+}
+
+.repoOptionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #20231f;
+}
+
+.repoOptionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.repoOptionRow input {
+  min-width: 0;
+  border: 1px solid #cfccbe;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.repoOptionRow button {
+  min-width: 76px;
+  border: 1px solid #2f6f4f;
+  border-radius: 8px;
+  background: #2f6f4f;
+  color: #fff;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.repoDialogCurrent {
+  margin: 0;
+  color: #6b6f63;
+  font-size: 12px;
+}
+
+.repoDialogFooter {
+  display: flex;
+  justify-content: center;
+}
+
+.linkLikeButton {
+  display: inline;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-left: 6px;
+  color: #2f6f4f;
+  font-size: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkLikeButton:hover:not(:disabled) {
+  color: #1d4a34;
+}
+
+.repoLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.inspectorWrap {
+  position: relative;
+  height: 100vh;
+  min-height: 0;
+  min-width: 0;
+}
+
+.inspectorWrap .inspector {
+  width: 100%;
+}
+
+.inspectorResizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 30;
+}
+
+.inspectorResizer:hover,
+body.isResizing .inspectorResizer {
+  background: rgba(47, 111, 79, 0.28);
+}
+
+body.isResizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.panelHint {
+  margin: 2px 0 8px;
+  color: #84897d;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.ledgerConfidence {
+  margin-left: 8px;
+  font-style: normal;
+  font-weight: 800;
+  font-size: 11px;
+  color: #2f6f4f;
+  background: #eaf5ef;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
 .shell {
   display: grid;
   grid-template-columns: 260px minmax(420px, 1fr) 340px;
@@ -111,20 +267,58 @@ button:disabled {
   height: 100vh;
   min-height: 0;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   overflow: hidden;
   border-right: 1px solid #d8d6ce;
   background: #101512;
   color: #f5f3e8;
-  padding: 22px 16px;
+  padding: 14px 12px;
+  font-size: 12px;
+}
+
+.sidebar.collapsed {
+  align-items: center;
+  padding: 14px 8px;
+  gap: 10px;
+}
+
+.iconRailButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #2c3a31;
+  border-radius: 8px;
+  background: #18372f;
+  color: #d8e4d6;
+}
+
+.iconRailButton:hover:not(:disabled) {
+  background: #1f4a3e;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 20px;
+  gap: 8px;
+  font-size: 15px;
   font-weight: 800;
+}
+
+.brandCollapse {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border-color: transparent;
+  color: #8e978e;
+}
+
+.sideEmpty {
+  color: #66736a;
+  font-size: 12px;
+  margin: 4px 0;
 }
 
 .newButton,
@@ -542,7 +736,7 @@ h1 {
 
 .taskLedgerStrip strong {
   color: #20231f;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.5;
 }
 

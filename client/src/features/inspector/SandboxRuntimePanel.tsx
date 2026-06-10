@@ -38,6 +38,7 @@ export function SandboxRuntimePanel({ snapshot }: SandboxRuntimePanelProps) {
         沙盒 Runtime
         {snapshot && <small>{statusText(snapshot.status)}</small>}
       </h3>
+      <p className="panelHint">沙盒 = 本次对话的隔离工作区：项目副本、运行进程、代码变更、检查点都在里面，不会碰你的原始项目。</p>
       {!snapshot && <p>接入仓库后，这里会显示当前对话沙盒的运行生命周期。</p>}
       {snapshot && (
         <>

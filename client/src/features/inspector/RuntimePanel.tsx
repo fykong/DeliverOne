@@ -71,6 +71,7 @@ export function RuntimePanel({ snapshot, isRunning, onEditTaskState }: RuntimePa
         任务状态机
         {snapshot && <small>{statusLabel(snapshot.stages.find((stage) => stage.id === snapshot.activeStage)?.status ?? "pending")}</small>}
       </h3>
+      <p className="panelHint">一次交付被拆成「需求→澄清→方案→执行→验证→交付→回退」等阶段，每个阶段绑定真实证据；可暂停、加备注、改下一步。</p>
       {!snapshot && <p>接入仓库并发送需求后，这里会显示完整交付链路。</p>}
       {snapshot && (
         <>
