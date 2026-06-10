@@ -14,6 +14,7 @@ from server_py.agent.tool_plan_drafter import ToolPlanDrafter
 from server_py.agent.workflow import AgentWorkflow
 from server_py.audit.plan_auditor import PlanAuditor
 from server_py.conversations.store import ConversationStore
+from server_py.delivery.git_submission import GitSubmissionService
 from server_py.delivery.service import DeliveryService
 from server_py.memory.memory_service import MemoryService
 from server_py.memory.patch_service import MemoryPatchService
@@ -59,6 +60,7 @@ class Services:
         self.approvals = ApprovalStore(self.events)
         self.checkpoints = CheckpointManager()
         self.delivery = DeliveryService(self.events)
+        self.git_submission = GitSubmissionService(self.events)
         self.rollback = RollbackService(self.checkpoints, self.events)
         self.models = ModelConfigService()
         self.client = ArkClient()

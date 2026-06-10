@@ -6,9 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from typing import TYPE_CHECKING
+
 from server_py.core.json_io import read_json
 from server_py.core.paths import AGENT_POLICY_PATH, WORKSPACE_ROOT
-from server_py.tools.types import AgentTool, ToolContext
+
+if TYPE_CHECKING:  # 仅类型标注使用，避免与 server_py.tools 循环导入
+    from server_py.tools.types import AgentTool, ToolContext
 
 
 PolicyDecision = Literal["allow", "prompt", "forbid"]

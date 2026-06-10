@@ -200,6 +200,13 @@ class DeliveryApplyBody(BaseModel):
     confirmed: bool = False
 
 
+class DeliverySubmitBody(BaseModel):
+    conversationId: str
+    confirmed: bool = False
+    title: str | None = None
+    baseBranch: str | None = None
+
+
 class MemoryFlagBody(BaseModel):
     itemId: str
     value: bool = True
@@ -1077,6 +1084,35 @@ def delivery_apply_to_source(body: DeliveryApplyBody) -> dict[str, Any]:
         return result
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/delivery/submit")
+def delivery_submit(body: DeliverySubmitBody) -> dict[str, Any]:
+    try:
+        state = services.conversations.get(body.conversationId)
+        plan = services.tool_call_plans.get_plan(body.conversationId)
+        record = services.git_submission.submit(
+            body.conversationId,
+            state,
+            plan,
+            body.confirmed,
+            title=body.title,
+            base_branch=body.baseBranch,
+        )
+        services.memory.record_decision(
+            body.conversationId,
+            "已生成提测分支",
+            f"分支 {record.get('branch')}，模式 {record.get('mode')}，PR：{record.get('pullRequest', {}).get('url') or '未创建'}",
+        )
+        return record
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/delivery/submission/{conversation_id}")
+def delivery_submission(conversation_id: str) -> dict[str, Any]:
+    record = services.git_submission.latest(conversation_id)
+    return {"conversationId": conversation_id, "exists": bool(record), "submission": record}
 
 
 @app.post("/api/preview/start")
