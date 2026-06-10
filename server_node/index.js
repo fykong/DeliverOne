@@ -113,7 +113,7 @@ const server = http.createServer(async (req, res) => {
     const runtimeOk = await checkRuntimeHealth();
     sendJson(res, 200, {
       ok: true,
-      service: "workbench-node-gateway",
+      service: "deliverone-gateway",
       port: PORT,
       runtime: { host: RUNTIME_HOST, port: RUNTIME_PORT, healthy: runtimeOk },
       modelGatewayConfigured: modelGateway.isConfigured(),
