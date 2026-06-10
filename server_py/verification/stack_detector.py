@@ -5,6 +5,9 @@ from typing import Any
 
 from server_py.core.json_io import now_iso, read_json
 
+# 沙盒预览专用端口,避开平台自身端口(5173 前端 / 4000 网关 / 4317 运行时)。
+SANDBOX_PREVIEW_PORT = 4500
+
 
 class StackDetector:
     def recommend_for_path(self, repo_path: str) -> dict[str, Any]:
@@ -89,19 +92,37 @@ class StackDetector:
         if not isinstance(scripts, dict):
             scripts = {}
         candidates: list[dict[str, Any]] = []
+        # 沙盒预览必须用专用端口,绝不能撞平台自身端口(5173/4000/4317),
+        # 否则 iframe 会加载到平台自己而不是被改的项目。
         if "dev" in scripts:
             script = str(scripts.get("dev") or "").lower()
-            if "vite" in script or "vite" in dependencies:
+            uses_workspace_frontend = "-w frontend" in script or "concurrently" in script
+            if uses_workspace_frontend:
+                # Conduit 这类 monorepo 根 dev 用 concurrently 起前后端;
+                # 预览只起 frontend 的 vite,绑定专用端口。
                 candidates.append(
                     self._recommendation(
                         "preview",
                         "dev",
-                        "npm run dev -- --host 127.0.0.1 --port 5173",
+                        f"npm run dev -w frontend -- --host 127.0.0.1 --port {SANDBOX_PREVIEW_PORT} --strictPort",
                         "package.json scripts.dev",
-                        "发现 Vite dev 脚本，推荐绑定本机地址和固定端口，便于 smoke test 与 iframe 预览。",
+                        f"monorepo 前后端单仓,预览只起前端并绑定专用端口 {SANDBOX_PREVIEW_PORT}(避开平台端口),便于 iframe 预览与 smoke test。",
                         0.94,
                         script_name="dev",
-                        ports=[5173],
+                        ports=[SANDBOX_PREVIEW_PORT],
+                    )
+                )
+            elif "vite" in script or "vite" in dependencies:
+                candidates.append(
+                    self._recommendation(
+                        "preview",
+                        "dev",
+                        f"npm run dev -- --host 127.0.0.1 --port {SANDBOX_PREVIEW_PORT} --strictPort",
+                        "package.json scripts.dev",
+                        f"发现 Vite dev 脚本，推荐绑定本机地址和专用端口 {SANDBOX_PREVIEW_PORT}，便于 smoke test 与 iframe 预览。",
+                        0.94,
+                        script_name="dev",
+                        ports=[SANDBOX_PREVIEW_PORT],
                     )
                 )
             elif "next" in script or "next" in dependencies:
@@ -109,12 +130,12 @@ class StackDetector:
                     self._recommendation(
                         "preview",
                         "dev",
-                        "npm run dev -- --hostname 127.0.0.1 --port 3000",
+                        f"npm run dev -- --hostname 127.0.0.1 --port {SANDBOX_PREVIEW_PORT}",
                         "package.json scripts.dev",
-                        "发现 Next.js dev 脚本，推荐绑定本机地址和固定端口。",
+                        f"发现 Next.js dev 脚本，推荐绑定本机地址和专用端口 {SANDBOX_PREVIEW_PORT}。",
                         0.9,
                         script_name="dev",
-                        ports=[3000],
+                        ports=[SANDBOX_PREVIEW_PORT],
                     )
                 )
             else:
@@ -127,7 +148,7 @@ class StackDetector:
                         "发现 dev 脚本，适合作为第一预览命令。",
                         0.78,
                         script_name="dev",
-                        ports=[3000],
+                        ports=[SANDBOX_PREVIEW_PORT],
                     )
                 )
         if "start" in scripts:

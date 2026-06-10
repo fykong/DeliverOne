@@ -1161,6 +1161,14 @@ export interface AgentOrchestratorBundle {
   nextActions: AgentOrchestratorNextAction[];
   /** 托管模式（/api/agent/autopilot）返回时附带的执行摘要。 */
   autopilot?: AutopilotSummary | null;
+  /** 对话/问答模式（action: "ask"）返回的回答。 */
+  ask?: AskResult | null;
+}
+
+export interface AskResult {
+  reply: string;
+  modelSource: "model" | "rules";
+  context?: unknown;
 }
 
 export interface ManagedProcess {

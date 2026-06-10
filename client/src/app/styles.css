@@ -165,6 +165,12 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.composerButtons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .panelError {
   border: 1px solid #6b3a3a;
   background: #2a1d1d;

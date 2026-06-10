@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Loader2, Play } from "lucide-react";
+import { Loader2, MessageCircle, Play } from "lucide-react";
 import type { SearchIntentSnapshot, TaskLedgerSnapshot } from "@workbench/shared";
 import type { ConversationMessage } from "./types";
 
@@ -15,6 +15,7 @@ interface ConversationViewProps {
   onAutopilotChange: (value: boolean) => void;
   onRequirementChange: (value: string) => void;
   onRunAgent: () => void;
+  onAskAgent: () => void;
 }
 
 export function ConversationView({
@@ -29,6 +30,7 @@ export function ConversationView({
   onAutopilotChange,
   onRequirementChange,
   onRunAgent,
+  onAskAgent,
 }: ConversationViewProps) {
   const visibleMessages = messages.filter((message) => !isModelSwitchNotice(message.text));
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -100,13 +102,19 @@ export function ConversationView({
             {canSend
               ? autopilotEnabled
                 ? "托管模式：自动确认并持续执行，直达提测"
-                : "计划模式：先生成方案，再由你确认工具调用"
-              : "先在左侧接入一个仓库"}
+                : "提问 = 聊一聊（问项目/改动/方案）；发送给 Agent = 进入开发交付"
+              : "提问可随时用；发送开发需求前先在左侧接入一个仓库"}
           </span>
-          <button onClick={onRunAgent} className="primary" type="button" disabled={isRunning || !canSend || !requirement.trim()}>
-            <Play size={18} />
-            {isRunning ? "Agent 处理中" : "发送给 Agent"}
-          </button>
+          <div className="composerButtons">
+            <button onClick={onAskAgent} className="secondary" type="button" disabled={isRunning || !requirement.trim()} title="基于当前会话上下文对话回答，不进入开发流程">
+              <MessageCircle size={16} />
+              提问
+            </button>
+            <button onClick={onRunAgent} className="primary" type="button" disabled={isRunning || !canSend || !requirement.trim()}>
+              <Play size={18} />
+              {isRunning ? "Agent 处理中" : "发送给 Agent"}
+            </button>
+          </div>
         </div>
       </footer>
     </>

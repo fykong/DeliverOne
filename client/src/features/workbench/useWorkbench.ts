@@ -635,6 +635,24 @@ export function useWorkbench() {
     }
   }
 
+  async function handleAskAgent() {
+    const question = requirement.trim();
+    if (!question || isBusy) return;
+    setRequirement("");
+    setIsRunning(true);
+    pushMessage({ role: "你", text: question });
+    try {
+      const bundle = await runOrchestratorAction({ conversationId, action: "ask", requirement: question });
+      applyOrchestratorBundle(bundle);
+      const reply = bundle.ask?.reply ?? "（没有回答）";
+      pushMessage({ role: "Agent", text: reply, meta: bundle.ask?.modelSource === "rules" ? "本地回答" : undefined });
+    } catch (error) {
+      pushMessage({ role: "Agent", text: `对话失败：${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
   async function handleRunAgent() {
     const trimmedRequirement = requirement.trim();
     if (!trimmedRequirement || isBusy || !sandbox) return;
@@ -1495,6 +1513,7 @@ export function useWorkbench() {
     handleRollbackCheckpointHunk,
     handleRollbackOriginal,
     handleRunAgent,
+    handleAskAgent,
     handleRunPreviewSmokeTest,
     handleSaveMCPConfig,
     handleValidateMCPConfig,

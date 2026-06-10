@@ -47,6 +47,7 @@ export function App() {
           onAutopilotChange={workbench.setAutopilotEnabled}
           onRequirementChange={workbench.setRequirement}
           onRunAgent={() => void workbench.handleRunAgent()}
+          onAskAgent={() => void workbench.handleAskAgent()}
         />
         </ErrorBoundary>
       </main>

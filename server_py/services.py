@@ -5,6 +5,7 @@ from server_py.core.env import load_env_file
 # 在任何服务实例化之前加载 .env，保证 ARK_API_KEY 等配置可见。
 load_env_file()
 
+from server_py.agent.ask_service import AskService
 from server_py.agent.planning_agent import PlanningAgent
 from server_py.agent.role_agents import AgentRoleSuite
 from server_py.agent.executor_agent import ExecutorAgent
@@ -104,6 +105,14 @@ class Services:
         self.diff = SandboxDiffService()
         self.profiler = RepoProfiler()
         self.processes = ProcessRegistry(self.events)
+        self.ask_service = AskService(
+            self.client,
+            self.models,
+            self.conversations,
+            self.diff,
+            self.metrics,
+            self.tool_call_plans,
+        )
         self.orchestrator = AgentOrchestrator(
             workflow=self.agent_workflow,
             conversations=self.conversations,
@@ -121,6 +130,7 @@ class Services:
             diff=self.diff,
             task_state_machine=self.task_state_machine,
             skills=self.skill_runtime,
+            ask_service=self.ask_service,
         )
 
 

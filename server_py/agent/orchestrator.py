@@ -7,6 +7,7 @@ from server_py.agent.tool_call_plan import ToolCallPlanService
 from server_py.agent.tool_plan_drafter import ToolPlanDrafter
 from server_py.agent.workflow import AgentWorkflow
 from server_py.conversations.store import ConversationStore
+from server_py.core.json_io import now_iso
 from server_py.memory.memory_service import MemoryService
 from server_py.preview.process_registry import ProcessRegistry
 from server_py.runtime.events import EventStore
@@ -45,6 +46,7 @@ class AgentOrchestrator:
         diff: SandboxDiffService,
         task_state_machine: TaskStateMachineService,
         skills: SkillRuntime | None = None,
+        ask_service: Any | None = None,
     ) -> None:
         self.workflow = workflow
         self.conversations = conversations
@@ -62,6 +64,7 @@ class AgentOrchestrator:
         self.diff = diff
         self.task_state_machine = task_state_machine
         self.skills = skills
+        self.ask_service = ask_service
 
     def run(
         self,
@@ -419,6 +422,27 @@ class AgentOrchestrator:
         if action == "refresh":
             return {}
 
+        if action == "ask":
+            question = (requirement or "").strip()
+            if not question:
+                raise RuntimeError("问题不能为空。")
+            if not self.ask_service:
+                raise RuntimeError("对话服务未配置。")
+            self.events.append(conversation_id, "ask.message", {"content": question[:400]}, actor="user")
+            result = self.ask_service.answer(conversation_id, question)
+            # 对话不写入交付状态机,只追加到消息流,保持会话可回看。
+            state = self.conversations.get(conversation_id)
+            stamp = now_iso()
+            state.setdefault("messages", []).append(
+                {"id": f"msg_ask_{stamp}", "role": "user", "content": question, "createdAt": stamp}
+            )
+            state["messages"].append(
+                {"id": f"msg_ans_{stamp}", "role": "agent", "content": result["reply"], "createdAt": stamp}
+            )
+            self.conversations.save(state)
+            self.events.append(conversation_id, "ask.answer", {"modelSource": result.get("modelSource")}, actor="agent")
+            return {"ask": result}
+
         if action == "submit_requirement":
             raw_input_text = (requirement or "").strip()
             if not raw_input_text:
@@ -647,6 +671,7 @@ class AgentOrchestrator:
         repair_plan: dict[str, Any] | None = None,
         repair_loop: dict[str, Any] | None = None,
         continuation_loop: dict[str, Any] | None = None,
+        ask: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         state = self.conversations.get(conversation_id)
         current_plan = tool_plan if tool_plan is not None else self.tool_call_plans.get_plan(conversation_id)
@@ -681,6 +706,7 @@ class AgentOrchestrator:
             "repairPlan": repair_plan,
             "repairLoop": repair_loop,
             "continuationLoop": continuation_loop,
+            "ask": ask,
             "checkpoints": checkpoints,
             "events": events,
             "processes": processes,
@@ -723,7 +749,7 @@ class AgentOrchestrator:
         return actions
 
     def _guard_task_state_control(self, conversation_id: str, action: str) -> None:
-        if action in {"refresh", "submit_requirement"}:
+        if action in {"refresh", "submit_requirement", "ask"}:
             return
         ledger = self.task_state_machine.read(conversation_id)
         if not ledger:
