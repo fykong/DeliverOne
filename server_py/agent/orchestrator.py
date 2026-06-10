@@ -370,6 +370,39 @@ class AgentOrchestrator:
         except Exception as error:
             return {"status": "error", "reason": f"页面级终检执行失败：{error}"}
 
+    def _merge_clarification_answer(self, conversation_id: str, user_input: str) -> tuple[str, bool]:
+        """用户对澄清追问的简短回答(编号/选项/补充),确定性合并回原始需求。"""
+        state = self.conversations.get(conversation_id)
+        turns = state.get("turns") if isinstance(state.get("turns"), list) else []
+        last_turn = turns[-1] if turns else None
+        if not isinstance(last_turn, dict) or last_turn.get("phase") != "clarification":
+            return user_input, False
+        if len(user_input) >= 200:
+            # 长文本视为用户主动重述的完整需求,尊重原文。
+            return user_input, False
+        original = str(state.get("lastRequirement") or "").strip()
+        if not original or original == user_input:
+            return user_input, False
+        questions: list[str] = []
+        for audit in reversed(state.get("audits", [])):
+            if isinstance(audit, dict) and audit.get("source") == "Clarifier" and audit.get("questions"):
+                questions = [str(item) for item in audit.get("questions", [])][:6]
+                break
+        lines = ["原始需求：", original, ""]
+        if questions:
+            lines.append("上一轮澄清问题：")
+            lines.extend(f"{index}. {question}" for index, question in enumerate(questions, start=1))
+            lines.append("")
+        lines.extend(
+            [
+                "用户对澄清问题的回答：",
+                user_input,
+                "",
+                "请将回答合并进原始需求，作为一份完整需求来理解和执行；回答中的编号/选项对应上面的澄清问题。",
+            ]
+        )
+        return "\n".join(lines), True
+
     def _autopilot_title(self, requirement: str) -> str:
         first_line = (requirement.splitlines() or [""])[0].strip()
         return first_line[:72] or "AI Delivery Workbench 托管交付"
@@ -387,9 +420,21 @@ class AgentOrchestrator:
             return {}
 
         if action == "submit_requirement":
-            next_requirement = (requirement or "").strip()
-            if not next_requirement:
+            raw_input_text = (requirement or "").strip()
+            if not raw_input_text:
                 raise RuntimeError("需求不能为空。")
+            # 上一轮是澄清追问时,用户可能只回编号或简短答案;确定性合并
+            # 「原始需求+澄清问题+用户回答」,不依赖模型自行从记忆拼装。
+            next_requirement, merged_from_clarification = self._merge_clarification_answer(
+                conversation_id, raw_input_text
+            )
+            if merged_from_clarification:
+                self.events.append(
+                    conversation_id,
+                    "clarification.answer.merged",
+                    {"answer": raw_input_text[:300], "mergedChars": len(next_requirement)},
+                    actor="runtime",
+                )
             memory_snapshot = self.memory.snapshot(
                 conversation_id, repository=repository, requirement=next_requirement, sandbox=sandbox
             )
@@ -412,13 +457,17 @@ class AgentOrchestrator:
                 },
                 actor="agent",
             )
+            display_message = raw_input_text if merged_from_clarification else None
             if clarification.get("verdict") == "blocked":
                 # 需求不可执行时短路：不调用规划模型，直接把追问作为 Agent 回复送回对话。
                 turn = self.workflow.clarification_turn(
-                    conversation_id, next_requirement, repository, sandbox, clarification
+                    conversation_id, next_requirement, repository, sandbox, clarification,
+                    display_message=display_message,
                 )
             else:
-                turn = self.workflow.plan(conversation_id, next_requirement, repository, sandbox)
+                turn = self.workflow.plan(
+                    conversation_id, next_requirement, repository, sandbox, display_message=display_message
+                )
             turn.setdefault("audits", []).append(clarification)
             self.conversations.record_audit(conversation_id, clarification)
             return {"turn": turn}

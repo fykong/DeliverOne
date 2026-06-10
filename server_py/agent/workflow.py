@@ -41,11 +41,14 @@ class AgentWorkflow:
         requirement: str,
         repository: dict[str, Any] | None,
         sandbox: dict[str, Any] | None,
+        display_message: str | None = None,
     ) -> dict[str, Any]:
         self.events.append(conversation_id, "turn.started", {"phase": "planning"})
-        self.events.append(conversation_id, "user.message", {"content": requirement}, actor="user")
+        self.events.append(conversation_id, "user.message", {"content": display_message or requirement}, actor="user")
         turn = self.planning_agent.run(conversation_id, requirement, repository, sandbox)
-        self.conversations.record_planning(conversation_id, requirement, turn, repository, sandbox)
+        self.conversations.record_planning(
+            conversation_id, requirement, turn, repository, sandbox, user_message=display_message
+        )
         self.memory.record_agent_turn(conversation_id, turn)
         self.events.append(conversation_id, "agent.message", {"content": turn["reply"], "phase": turn["phase"]}, actor="agent")
         self.events.append(conversation_id, "turn.completed", {"phase": turn["phase"]})
@@ -58,10 +61,11 @@ class AgentWorkflow:
         repository: dict[str, Any] | None,
         sandbox: dict[str, Any] | None,
         clarification: dict[str, Any],
+        display_message: str | None = None,
     ) -> dict[str, Any]:
         """Clarifier 判定 blocked 时的短路 turn：不调用规划模型，直接把追问送回对话。"""
         self.events.append(conversation_id, "turn.started", {"phase": "clarification"})
-        self.events.append(conversation_id, "user.message", {"content": requirement}, actor="user")
+        self.events.append(conversation_id, "user.message", {"content": display_message or requirement}, actor="user")
         preflight = self.planning_agent.preflight.run(
             conversation_id, requirement, repository, sandbox, include_search_intent=False
         )
@@ -85,7 +89,9 @@ class AgentWorkflow:
             "blockedReason": clarification.get("summary") or "需求需要先澄清。",
             "createdAt": now_iso(),
         }
-        self.conversations.record_planning(conversation_id, requirement, turn, repository, sandbox)
+        self.conversations.record_planning(
+            conversation_id, requirement, turn, repository, sandbox, user_message=display_message
+        )
         self.memory.record_agent_turn(conversation_id, turn)
         self.events.append(conversation_id, "agent.message", {"content": reply, "phase": "clarification"}, actor="agent")
         self.events.append(conversation_id, "turn.completed", {"phase": "clarification"})

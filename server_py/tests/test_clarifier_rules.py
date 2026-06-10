@@ -32,7 +32,9 @@ def test_contradictory_requirement_detected():
         repository={"name": "conduit"},
         sandbox={"id": "sb", "repoPath": "x"},
     )
-    assert result["verdict"] == "blocked"
+    # 规则层只做矛盾提示(warning)：模型才是主矛盾检测者(能理解用户后续取舍),
+    # error 级会在澄清回答合并后的文本上强制 blocked,盖掉模型的正确判断。
+    assert result["verdict"] == "warning"
     assert any(finding["id"] == "contradictory-scope" for finding in result["findings"])
 
 

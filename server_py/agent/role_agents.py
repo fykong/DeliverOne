@@ -61,7 +61,7 @@ class AgentRoleSuite:
             model_source="rules",
         )
         fallback["questions"] = self._fallback_questions(rule_findings, skill_guidance)
-        return self._run_model_role(
+        result = self._run_model_role(
             conversation_id=conversation_id,
             metric_source="role_clarifier",
             stage="clarification",
@@ -90,10 +90,23 @@ class AgentRoleSuite:
                     "自相矛盾的需求（如既要持久化又不许动后端）必须指出矛盾并给出可选路径，不允许自行选一条硬编。",
                     "追问必须具体到可以直接回答，禁止『请提供更多信息』式的空泛问题。",
                     "questions 数量不超过 5 个，按重要性排序，blocking 的在前。",
+                    "用户已在回答中对矛盾做出取舍时，按取舍后的需求判定，不要重复追问已回答的问题。",
                     "只输出 JSON，不要输出 Markdown。",
                 ],
             },
         )
+        # blocked 必须可行动：没有任何追问、也没有 error 级 finding 的 blocked
+        # 是死路（用户无从回答），降级为 warning 继续进入方案。
+        if (
+            result.get("verdict") == "blocked"
+            and not result.get("questions")
+            and not any(finding.get("severity") == "error" for finding in result.get("findings", []))
+        ):
+            result["verdict"] = "warning"
+            result["recommendation"] = (
+                str(result.get("recommendation") or "") + "（blocked 缺少可回答的追问，已降级为 warning 继续推进。）"
+            ).strip()
+        return result
 
     def _clarify_skill_guidance(
         self,
@@ -482,12 +495,14 @@ class AgentRoleSuite:
         no_backend = any(word in text for word in ["不要动后端", "不改后端", "不动后端", "只改前端", "纯前端"])
         needs_persistence = any(word in text for word in ["保存", "持久", "数据库", "新字段", "加字段", "记录下来"])
         if no_backend and needs_persistence:
+            # warning 而非 error：模型是主要的矛盾检测者(能理解用户后续的取舍回答)，
+            # 规则只做提示；error 会在合并后的文本上强制 blocked，盖掉模型的正确判断。
             findings.append(
                 self._finding(
                     "contradictory-scope",
                     "需求可能自相矛盾",
-                    "需求同时要求不动后端和持久化数据，两者冲突；需要用户在「前端假数据」和「允许改后端」之间选择。",
-                    "error",
+                    "需求文本同时出现不动后端与持久化数据，请确认用户是否已在澄清回答中做出取舍。",
+                    "warning",
                 )
             )
         return findings

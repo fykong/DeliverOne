@@ -100,13 +100,15 @@ class ConversationStore:
         turn: dict[str, Any],
         repository: dict[str, Any] | None,
         sandbox: dict[str, Any] | None,
+        user_message: str | None = None,
     ) -> dict[str, Any]:
         state = self.get(conversation_id)
         self._transition(state, turn["phase"], "agent.planning.completed", "agent", "模型规划阶段完成。")
         state["lastRequirement"] = requirement
         state["repository"] = repository
         state["sandbox"] = sandbox
-        state.setdefault("messages", []).append(self._message("user", requirement))
+        # 澄清回答合并时,聊天区显示用户原话,lastRequirement 存合并后的完整需求。
+        state.setdefault("messages", []).append(self._message("user", user_message or requirement))
         state["messages"].append(self._message("agent", turn["reply"]))
         state.setdefault("turns", []).append(turn)
         state.setdefault("audits", []).extend(turn.get("audits", []))
