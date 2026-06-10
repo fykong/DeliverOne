@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { FolderGit2, Loader2, Send } from "lucide-react";
 import type { RepositoryStatus, SandboxStatus, SearchIntentSnapshot, TaskLedgerSnapshot } from "@workbench/shared";
+import { MarkdownPreview } from "../inspector/MarkdownPreview";
 import type { ConversationMessage } from "./types";
 
 interface ConversationViewProps {
@@ -56,7 +57,13 @@ export function ConversationView({
         {visibleMessages.map((message, index) => (
           <article className={`message ${message.role === "你" ? "user" : message.role === "系统" ? "system" : "agent"}`} key={`${message.role}-${index}`}>
             <div className="messageRole">{message.role}</div>
-            <div className="messageText">{message.text}</div>
+            {message.role === "你" ? (
+              <div className="messageText">{message.text}</div>
+            ) : (
+              <div className="messageText messageMarkdown">
+                <MarkdownPreview content={message.text} />
+              </div>
+            )}
             {message.questions?.length ? (
               <div className="clarifyBlock" aria-label="澄清问题">
                 <strong>澄清问题</strong>
@@ -84,8 +91,15 @@ export function ConversationView({
         <textarea
           value={requirement}
           onChange={(event) => onRequirementChange(event.target.value)}
+          onKeyDown={(event) => {
+            // 中文输入法组词时的 Enter 是选字,绝不能触发发送。
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              if (!isRunning && requirement.trim()) onRunAgent();
+            }
+          }}
           aria-label="输入需求或提问"
-          placeholder={sandbox ? "描述需求或直接提问，我会自动判断…" : "可以先提问；要改代码请先接入仓库…"}
+          placeholder={sandbox ? "描述需求或直接提问，我会自动判断…（Enter 发送，Shift+Enter 换行）" : "可以先提问；要改代码请先接入仓库…（Enter 发送）"}
         />
         <div className="composerToggle">
           <label>

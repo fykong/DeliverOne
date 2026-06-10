@@ -194,7 +194,8 @@ function renderBlock(block: MarkdownBlock) {
 
 function renderInline(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
+  // 裸 URL 也自动转链接(排除中英文标点结尾),聊天里的 PR 链接才点得动。
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s)）\]」》。，、;；!！?？]+)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -205,6 +206,12 @@ function renderInline(text: string): ReactNode[] {
       nodes.push(<code key={`code-${match.index}`}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith("**")) {
       nodes.push(<strong key={`strong-${match.index}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("http")) {
+      nodes.push(
+        <a href={token} target="_blank" rel="noreferrer" key={`url-${match.index}`}>
+          {token}
+        </a>
+      );
     } else {
       const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       const href = link?.[2] ?? "#";
