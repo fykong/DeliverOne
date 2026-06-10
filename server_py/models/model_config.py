@@ -44,9 +44,20 @@ class ModelConfigService:
         result = dict(model)
         provider = result.get("provider")
         api_key_env = result.get("apiKeyEnv")
-        if provider == "ark" and api_key_env and not os.environ.get(api_key_env):
+        model_env = result.get("modelEnv")
+        missing: list[str] = []
+        if provider == "ark":
+            if api_key_env and not os.environ.get(api_key_env):
+                missing.append(api_key_env)
+            # EP id 既不在环境变量(modelEnv)也不在配置(model 字段)时同样不可用,
+            # 否则会拿空 EP 去请求,上游直接 400。
+            if not os.environ.get(model_env or "") and not str(result.get("model") or "").strip():
+                missing.append(model_env or "ARK_MODEL")
+        if missing:
             result["enabled"] = False
-            result["unavailableReason"] = f"缺少环境变量 {api_key_env}"
+            result["unavailableReason"] = (
+                f"缺少环境变量 {'、'.join(missing)}。请在项目根目录 .env 配置后重启 npm run dev。"
+            )
         else:
             result["enabled"] = True
             result.pop("unavailableReason", None)

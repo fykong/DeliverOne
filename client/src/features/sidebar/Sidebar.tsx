@@ -1,5 +1,7 @@
-import { Bot, FolderGit2, Github, Plus, RotateCcw } from "lucide-react";
+import { useState } from "react";
+import { Bot, FolderGit2, Github, Plus, RotateCcw, Trash2 } from "lucide-react";
 import type { AgentConversationSummary, RepositoryStatus } from "@workbench/shared";
+import { phaseLabels } from "../inspector/constants";
 
 interface SidebarProps {
   conversations: AgentConversationSummary[];
@@ -15,6 +17,7 @@ interface SidebarProps {
   onNewConversation: () => void;
   onSelectConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
+  onCleanup?: () => void;
 }
 
 export function Sidebar({
@@ -30,9 +33,13 @@ export function Sidebar({
   onConnectGithub,
   onNewConversation,
   onSelectConversation,
-  onDeleteConversation
+  onDeleteConversation,
+  onCleanup
 }: SidebarProps) {
-  const visibleConversations = conversations.filter((item) => item.conversationId === activeConversationId || !isInternalConversation(item));
+  const [showHidden, setShowHidden] = useState(false);
+  const visibleConversations = conversations.filter(
+    (item) => showHidden || item.conversationId === activeConversationId || !isInternalConversation(item)
+  );
   const hiddenCount = conversations.length - visibleConversations.length;
 
   return (
@@ -79,13 +86,23 @@ export function Sidebar({
       <section className="sideSection historySection">
         <div className="sideTitle">
           <span>历史对话</span>
-          {hiddenCount > 0 && <small>已隐藏 {hiddenCount} 条测试记录</small>}
+          {hiddenCount > 0 && (
+            <button type="button" className="linkButton" onClick={() => setShowHidden((value) => !value)}>
+              {showHidden ? "收起开发记录" : `显示 ${hiddenCount} 条开发记录`}
+            </button>
+          )}
+          {onCleanup && (
+            <button type="button" className="linkButton" onClick={onCleanup} disabled={isRunning} title="清理空的孤儿目录">
+              <Trash2 size={13} />
+              清理
+            </button>
+          )}
         </div>
         {visibleConversations.map((item) => (
           <div className={`threadRow ${item.conversationId === activeConversationId ? "active" : ""}`} key={item.conversationId}>
             <button className="threadItem" type="button" onClick={() => onSelectConversation(item.conversationId)}>
               <span>{item.title}</span>
-              <small>{item.phase}</small>
+              <small>{phaseLabels[item.phase] ?? item.phase}</small>
             </button>
             <button className="threadDelete" type="button" onClick={() => onDeleteConversation(item.conversationId)} disabled={isRunning} aria-label="删除对话">
               ×
@@ -103,6 +120,8 @@ export function Sidebar({
 }
 
 function isInternalConversation(item: AgentConversationSummary) {
+  // 后端显式标记优先;旧会话回退到关键词启发式(仅作兼容,不再扩大)。
+  if (item.internal) return true;
   const title = item.title.trim().toLowerCase();
   const value = `${item.conversationId} ${title}`.toLowerCase();
   return (

@@ -37,6 +37,7 @@ import type {
 import {
   cloneGitHubSandbox,
   connectLocalSandbox,
+  cleanupConversations as cleanupConversations_api,
   deleteConversation,
   denyApproval,
   discoverMCPTools,
@@ -220,9 +221,34 @@ function formatRepairPlanTrace(plan: ToolCallPlan) {
     .join("\n");
 }
 
+const autopilotStageLabels: Record<string, string> = {
+  submit: "需求提交",
+  clarification: "需求澄清",
+  sandbox: "沙盒接入",
+  "tool-plan": "工具计划",
+  "review-blocked": "计划审查",
+  continuation: "推进计划",
+  "execution-failed": "执行失败",
+  "round-cap": "轮次上限",
+  "final-verification": "交付终检",
+  "plan-status": "计划状态",
+  done: "完成",
+};
+
+const autopilotStageActions: Record<string, string> = {
+  clarification: "请在下方输入框回答澄清问题后重新发送（可只回编号）。",
+  sandbox: "请先在左侧接入仓库再重试。",
+  "review-blocked": "请在右侧工具计划面板查看 Reviewer 阻断原因，调整后重新生成计划。",
+  "execution-failed": "请在右侧查看失败步骤，点击「生成修复计划」或关闭托管手动推进。",
+  continuation: "请在右侧工具计划面板点击「继续推进需求」。",
+  "round-cap": "已达自动轮次上限，请关闭托管模式手动检查后继续。",
+  "final-verification": "交付前复验未通过，请查看验证报告后修复再提测。",
+};
+
 function formatAutopilotSummary(summary: AutopilotSummary | null | undefined) {
   if (!summary) return null;
   const lines: string[] = [];
+  const stageLabel = autopilotStageLabels[summary.stage] ?? summary.stage;
   if (summary.finished) {
     const submission = summary.submission;
     if (submission?.branch) {
@@ -235,9 +261,11 @@ function formatAutopilotSummary(summary: AutopilotSummary | null | undefined) {
       lines.push(`PR 链接：${submission.prUrl}`);
     }
   } else if (summary.needsHuman) {
-    lines.push(`托管暂停于 ${summary.stage}：${summary.reason || "需要人工处理。"}`);
+    lines.push(`托管已暂停（${stageLabel}）：${summary.reason || "需要人工处理。"}`);
+    const action = autopilotStageActions[summary.stage];
+    if (action) lines.push(`下一步：${action}`);
   } else {
-    lines.push(`托管结束于 ${summary.stage}：${summary.reason || "未提供原因。"}`);
+    lines.push(`托管结束（${stageLabel}）：${summary.reason || "未提供原因。"}`);
   }
   if (summary.delivery) {
     lines.push(`交付门禁：${summary.delivery.verificationGate ?? "unknown"}；变更文件 ${summary.delivery.changedFiles} 个。`);
@@ -480,6 +508,8 @@ export function useWorkbench() {
     setSelectedDiff(null);
     setCheckpointDiff(null);
     setSelectedCheckpointId(null);
+    setRequirement("");
+    setExecutionStatus(null);
     setMessages([{ role: "Agent", text: "已新建对话。请接入仓库后发送需求，我会按计划模式推进。" }]);
   }
 
@@ -515,8 +545,24 @@ export function useWorkbench() {
     }
   }
 
+  async function cleanupConversations() {
+    if (isBusy) return;
+    setIsRunning(true);
+    try {
+      const result = await cleanupConversations_api();
+      await refreshConversations();
+      pushMessage({ role: "系统", text: `已清理 ${result.removed} 个空的孤儿目录。` });
+    } catch (error) {
+      pushMessage({ role: "Agent", text: `清理失败：${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
   function hydrateConversation(state: AgentConversationState) {
     setConversationId(state.conversationId);
+    setRequirement("");
+    setExecutionStatus(null);
     setRepository(state.repository ?? null);
     setSandbox(state.sandbox ?? null);
     setPreflight(null);
@@ -592,6 +638,9 @@ export function useWorkbench() {
   async function handleRunAgent() {
     const trimmedRequirement = requirement.trim();
     if (!trimmedRequirement || isBusy || !sandbox) return;
+
+    // 提交成功后清空输入框草稿,避免重复提交、避免澄清回答与旧需求混淆。
+    setRequirement("");
 
     if (autopilotEnabled) {
       await runAutopilotRequirement(trimmedRequirement);
@@ -670,7 +719,9 @@ export function useWorkbench() {
     if (isBusy) return;
     setIsRunning(true);
     try {
-      const bundle = await runOrchestratorAction({ conversationId, action: "approve_plan", requirement });
+      // 不传 requirement：服务端固定用已合并的 lastRequirement，
+      // 避免输入框里残留的澄清短回答覆盖完整需求。
+      const bundle = await runOrchestratorAction({ conversationId, action: "approve_plan" });
       applyOrchestratorBundle(bundle);
       if (bundle.turn) {
         pushMessage({ role: "Agent", text: bundle.turn.reply });
@@ -1455,6 +1506,7 @@ export function useWorkbench() {
     refreshEvidence,
     resetConversation,
     removeConversation,
+    cleanupConversations,
     selectConversation,
     setAutopilotEnabled,
     setGithubUrl,

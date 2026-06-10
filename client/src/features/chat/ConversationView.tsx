@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Loader2, Play } from "lucide-react";
 import type { SearchIntentSnapshot, TaskLedgerSnapshot } from "@workbench/shared";
 import type { ConversationMessage } from "./types";
@@ -30,10 +31,22 @@ export function ConversationView({
   onRunAgent,
 }: ConversationViewProps) {
   const visibleMessages = messages.filter((message) => !isModelSwitchNotice(message.text));
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLElement>(null);
+
+  // 新消息追加时自动滚到底,但用户已手动上滚查看历史时不打扰。
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 160;
+    if (nearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [messages.length, executionStatus]);
 
   return (
     <>
-      <section className="messages">
+      <section className="messages" ref={messagesRef}>
         <TaskLedgerStrip taskLedger={taskLedger} searchIntent={searchIntent} />
         {visibleMessages.map((message, index) => (
           <article className={`message ${message.role === "你" ? "user" : message.role === "系统" ? "system" : "agent"}`} key={`${message.role}-${index}`}>
@@ -52,6 +65,7 @@ export function ConversationView({
             {message.meta && <div className="messageMeta">{message.meta}</div>}
           </article>
         ))}
+        <div ref={bottomRef} />
       </section>
 
       {executionStatus && (

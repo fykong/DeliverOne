@@ -141,6 +141,45 @@ button:disabled {
   white-space: nowrap;
 }
 
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: #6f8f74;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.linkButton:hover:not(:disabled) {
+  color: #9ad0a2;
+  text-decoration: underline;
+}
+
+.linkButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.panelError {
+  border: 1px solid #6b3a3a;
+  background: #2a1d1d;
+}
+
+.panelError h3 {
+  color: #e0a3a3;
+}
+
+.panelError p {
+  color: #c8b0b0;
+  font-size: 13px;
+  margin: 8px 0;
+}
+
 .sideField {
   display: grid;
   gap: 6px;

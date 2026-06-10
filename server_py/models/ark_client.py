@@ -69,8 +69,13 @@ class ArkClient:
                 with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as error:
-                detail = error.read().decode("utf-8", errors="replace")[:500]
-                last_error = RuntimeError(f"模型调用失败：HTTP {error.code}。{detail}")
+                raw = error.read().decode("utf-8", errors="replace")[:500]
+                if error.code == 429:
+                    last_error = RuntimeError("模型调用被限流（每分钟次数已达上限），请约 1 分钟后重试。")
+                elif error.code in {401, 403}:
+                    last_error = RuntimeError("模型鉴权失败（401/403）：请检查 .env 中的 ARK_API_KEY 是否正确并重启。")
+                else:
+                    last_error = RuntimeError(f"模型调用失败（HTTP {error.code}）：{self._extract_upstream_message(raw)}")
                 # 401/403/400 等客户端错误重试无意义，直接报出。
                 if error.code not in {429, 500, 502, 503, 504}:
                     raise last_error from error
@@ -84,6 +89,17 @@ class ArkClient:
             if attempt < len(self.RETRY_BACKOFF_SECONDS):
                 time.sleep(self.RETRY_BACKOFF_SECONDS[attempt])
         raise last_error if last_error else RuntimeError("模型调用失败：未知错误。")
+
+    def _extract_upstream_message(self, raw: str) -> str:
+        """从上游 JSON 错误体里抠出人类可读的 message，避免把整段嵌套 JSON 甩给用户。"""
+        try:
+            payload = json.loads(raw)
+            message = (payload.get("error") or {}).get("message") if isinstance(payload, dict) else None
+            if message:
+                return str(message)[:200]
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        return raw[:200]
 
     def _mock_reply(self, messages: list[dict[str, str]]) -> str:
         requirement = messages[-1]["content"] if messages else ""

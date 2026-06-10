@@ -3,6 +3,7 @@ import { Inspector } from "../features/inspector/Inspector";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { Topbar } from "../features/topbar/Topbar";
 import { useWorkbench } from "../features/workbench/useWorkbench";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 
 export function App() {
   const workbench = useWorkbench();
@@ -23,6 +24,7 @@ export function App() {
         onNewConversation={workbench.resetConversation}
         onSelectConversation={(conversationId) => void workbench.selectConversation(conversationId)}
         onDeleteConversation={(conversationId) => void workbench.removeConversation(conversationId)}
+        onCleanup={() => void workbench.cleanupConversations()}
       />
 
       <main className="conversation">
@@ -32,6 +34,7 @@ export function App() {
           phaseLabel={workbench.phaseLabel}
           onModelChange={(modelId) => void workbench.handleModelChange(modelId)}
         />
+        <ErrorBoundary label="对话区">
         <ConversationView
           messages={workbench.messages}
           requirement={workbench.requirement}
@@ -45,8 +48,10 @@ export function App() {
           onRequirementChange={workbench.setRequirement}
           onRunAgent={() => void workbench.handleRunAgent()}
         />
+        </ErrorBoundary>
       </main>
 
+      <ErrorBoundary label="证据面板">
       <Inspector
         conversationId={workbench.conversationId}
         preflight={workbench.preflight}
@@ -120,6 +125,7 @@ export function App() {
         onOpenDiffFile={(path) => void workbench.openDiffFile(path)}
         onOpenCheckpointDiff={(checkpointId) => void workbench.openCheckpointDiff(checkpointId)}
       />
+      </ErrorBoundary>
     </div>
   );
 }

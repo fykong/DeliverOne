@@ -483,7 +483,9 @@ class AgentOrchestrator:
             if state.get("phase") == "waiting_sandbox":
                 return {"turn": turn}
 
-            plan_requirement = (requirement or state.get("lastRequirement") or "").strip()
+            # lastRequirement 优先:它存的是澄清合并后的完整需求；approve_plan 时
+            # 前端可能带上输入框残留的短回答,绝不能用它覆盖已合并的需求。
+            plan_requirement = (state.get("lastRequirement") or requirement or "").strip()
             if not plan_requirement:
                 raise RuntimeError("生成工具计划前缺少需求。")
             previous_turn = state.get("turns", [])[-1] if state.get("turns") else None

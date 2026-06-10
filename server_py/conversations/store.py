@@ -1,12 +1,34 @@
 from __future__ import annotations
 
+import os
 import shutil
+import stat
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from server_py.core.json_io import now_iso, read_json, write_json
 from server_py.core.paths import WORKSPACE_ROOT, conversation_root
 from server_py.runtime.state_machine import RuntimeStateMachine
+
+
+def _force_remove_tree(path: Path) -> None:
+    """Windows 下 git 仓库的 .git/objects 是只读文件,shutil.rmtree 会 WinError 5。
+
+    onexc/onerror 回调里清除只读位后重试。Python 3.12+ 用 onexc,旧版用 onerror。
+    """
+
+    def _on_error(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass
+
+    try:
+        shutil.rmtree(path, onexc=lambda f, t, e: _on_error(f, t, e))  # type: ignore[call-arg]
+    except TypeError:
+        shutil.rmtree(path, onerror=lambda f, t, e: _on_error(f, t, e))
 
 
 class ConversationStore:
@@ -53,8 +75,31 @@ class ConversationStore:
         if root != workspace and workspace not in root.parents:
             raise RuntimeError("会话路径超出工作区，拒绝删除。")
         if root.exists():
-            shutil.rmtree(root)
+            try:
+                _force_remove_tree(root)
+            except OSError as error:
+                raise RuntimeError(
+                    f"删除会话失败：{error}。可能有预览进程仍占用文件，请先停止预览后重试。"
+                ) from error
         return {"ok": True, "conversationId": conversation_id, "summary": "会话和对应沙盒工作区已删除。"}
+
+    def cleanup_orphans(self) -> dict[str, Any]:
+        """删除没有 conversation-state.json 的孤儿目录(只读 GET 链路误建的空壳)。"""
+        root = WORKSPACE_ROOT / "conversations"
+        if not root.exists():
+            return {"ok": True, "removed": 0, "removedIds": []}
+        removed: list[str] = []
+        for item in root.iterdir():
+            if not item.is_dir():
+                continue
+            if (item / "conversation-state.json").exists():
+                continue
+            try:
+                _force_remove_tree(item)
+                removed.append(item.name)
+            except OSError:
+                continue
+        return {"ok": True, "removed": len(removed), "removedIds": removed}
 
     def record_context(
         self,
@@ -145,11 +190,13 @@ class ConversationStore:
 
     def _summary(self, state: dict[str, Any]) -> dict[str, Any]:
         messages = state.get("messages") if isinstance(state.get("messages"), list) else []
-        last_user_message = next((item for item in reversed(messages) if item.get("role") == "user"), None)
         repository = state.get("repository") if isinstance(state.get("repository"), dict) else None
+        # 标题固化为首条用户消息(原始需求),而非最后一条——否则回答澄清后
+        # 标题会变成"1选A"之类的短回答,在列表里完全认不出。
+        first_user_message = next((item for item in messages if item.get("role") == "user"), None)
         title = ""
-        if isinstance(last_user_message, dict):
-            title = str(last_user_message.get("content", "")).strip()
+        if isinstance(first_user_message, dict):
+            title = str(first_user_message.get("content", "")).strip()
         if not title and repository:
             title = str(repository.get("source", "")).split("\\")[-1].split("/")[-1]
         if not title:
@@ -165,4 +212,7 @@ class ConversationStore:
             "toolCallPlan": state.get("toolCallPlan"),
             "lastTransition": state.get("lastTransition"),
             "stateWarningCount": len(state.get("stateWarnings", [])),
+            # 后端权威标记:开发/测试会话显式 internal,前端据此过滤,
+            # 不再用标题关键词启发式误伤用户自己的同名对话。
+            "internal": bool(state.get("internal")),
         }

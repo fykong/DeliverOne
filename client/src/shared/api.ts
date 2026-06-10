@@ -49,11 +49,29 @@ const apiBase = (import.meta.env?.VITE_API_BASE as string | undefined) ?? "http:
 export type { CheckpointManifest } from "@workbench/shared";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}${path}`, init);
+  } catch {
+    // fetch 抛 TypeError 通常是连不上本地网关(服务没启动)。
+    throw new Error(`无法连接本地服务(${apiBase})。请确认 npm run dev 已启动（前端 + Node 网关 + 后端三个进程都在运行）。`);
+  }
   if (!response.ok) {
-    throw new Error(await response.text());
+    const raw = await response.text();
+    throw new Error(extractDetail(raw));
   }
   return response.json() as Promise<T>;
+}
+
+// FastAPI 错误体是 {"detail": "..."};抽出 detail 文案,避免把整段 JSON 甩给用户。
+function extractDetail(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    /* 非 JSON，原样返回 */
+  }
+  return raw;
 }
 
 function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -283,6 +301,10 @@ export function deleteConversation(conversationId: string) {
   return requestJson<{ ok: boolean; conversationId: string; summary: string }>(`/api/conversations/${conversationId}`, {
     method: "DELETE"
   });
+}
+
+export function cleanupConversations() {
+  return postJson<{ ok: boolean; removed: number; removedIds: string[] }>("/api/conversations/cleanup", {});
 }
 
 export function getEvents(conversationId: string) {

@@ -59,7 +59,7 @@ export function MemoryPanel({
   const [form, setForm] = useState<MemoryFormState | null>(null);
   const recallItems = memory?.recall?.items ?? [];
   const longTermItems = memory?.longTerm?.items ?? [];
-  const sections = memory?.contextPack.sections ?? [];
+  const sections = memory?.contextPack?.sections ?? [];
   const patterns = memory?.patterns?.items ?? [];
   const curatedMemory = memory?.curatedMemory;
   const curatedItems = curatedMemory?.items ?? [];
@@ -132,14 +132,14 @@ export function MemoryPanel({
             <Metric value={recallItems.length} label="召回记忆" />
             <Metric value={memory.longTerm?.count ?? memory.recall?.longTermCount ?? 0} label="长期记忆" />
             <Metric value={memory.patterns?.count ?? 0} label="复用策略" />
-            <Metric value={curatedMemory?.counts.total ?? 0} label="结构化记忆" />
+            <Metric value={curatedMemory?.counts?.total ?? 0} label="结构化记忆" />
           </div>
 
           <div className="memoryMeta">
             <span>{strategy}</span>
             <span>候选 {memory.recall?.candidateCount ?? memory.recall?.entryCount ?? 0}</span>
             <span>命名空间 {memory.longTerm?.namespace ?? "workspace"}</span>
-            <span>Curator {memory.recall?.curatedCount ?? curatedMemory?.counts.total ?? 0}</span>
+            <span>Curator {memory.recall?.curatedCount ?? curatedMemory?.counts?.total ?? 0}</span>
           </div>
 
           {taskLedger && <TaskLedgerBlock taskLedger={taskLedger} />}

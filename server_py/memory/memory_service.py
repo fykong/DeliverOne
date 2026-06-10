@@ -130,6 +130,24 @@ class MemoryService:
             "rejected_patterns": root / "skill" / "rejected-patterns.md",
         }
 
+    def _empty_snapshot(self, conversation_id: str) -> dict[str, Any]:
+        return {
+            "conversationId": conversation_id,
+            "repo": {"summary": ["尚未接入仓库"]},
+            "conversation": {"summary": ["尚未记录需求"]},
+            "delivery": {"changedFiles": 0, "rollbackPointCount": 0},
+            "skill": {"matchedSkillIds": []},
+            "contextPack": {"sections": [], "summary": "尚未形成上下文。"},
+            "searchIntent": {},
+            "taskLedger": None,
+            "taskState": None,
+            "recall": {"query": "", "items": [], "entryCount": 0, "candidateCount": 0},
+            "longTerm": {"count": 0, "namespace": "workspace", "items": []},
+            "patterns": {"count": 0, "items": []},
+            "curatedMemory": {"counts": {"total": 0}, "items": [], "namespace": "workspace"},
+            "updatedAt": now_iso(),
+        }
+
     def ensure_layout(self, conversation_id: str) -> dict[str, Path]:
         paths = self._paths(conversation_id)
         for key in ["repo", "conversation", "delivery", "skill"]:
@@ -311,6 +329,11 @@ class MemoryService:
         search_intent: dict[str, Any] | None = None,
         sandbox: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # 只读快照:会话还没有任何记忆且本次不带需求/仓库时,不创建目录树,
+        # 避免"打开页面什么都没做就多出一堆空壳 conv_xxx 目录"的孤儿污染。
+        memory_root = conversation_root(conversation_id) / "memory"
+        if not memory_root.exists() and not requirement and not repository and not matched_skills:
+            return self._empty_snapshot(conversation_id)
         paths = self.ensure_layout(conversation_id)
         repo = repository or read_json(paths["repo_profile"], None)
         skills = matched_skills if matched_skills is not None else read_json(paths["matched_skills"], [])

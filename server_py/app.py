@@ -688,7 +688,22 @@ def list_conversations() -> list[dict[str, Any]]:
 @app.delete("/api/conversations/{conversation_id}")
 def delete_conversation(conversation_id: str) -> dict[str, Any]:
     try:
+        # 删除前先停掉该会话的预览进程,否则进程占用文件会导致 rmtree 失败。
+        for process in services.processes.list():
+            if process.get("conversationId") == conversation_id and process.get("status") == "running":
+                try:
+                    services.processes.stop(process.get("id"), conversation_id)
+                except Exception:
+                    pass
         return services.conversations.delete(conversation_id)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/conversations/cleanup")
+def cleanup_conversations() -> dict[str, Any]:
+    try:
+        return services.conversations.cleanup_orphans()
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

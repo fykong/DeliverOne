@@ -176,8 +176,10 @@ export function MCPPanel({
   const selectedEventCanReplay = Boolean(selectedEvent?.payload && Object.prototype.hasOwnProperty.call(selectedEvent.payload, "input"));
 
   useEffect(() => {
+    // 用户正在编辑配置时,后台刷新不得覆盖编辑框,否则敲了半天的内容被服务器旧配置吞掉。
+    if (isEditingConfig) return;
     setConfigText(prettyJson(config ?? { version: 1, servers: [] }));
-  }, [config]);
+  }, [config, isEditingConfig]);
 
   function readConfig() {
     try {

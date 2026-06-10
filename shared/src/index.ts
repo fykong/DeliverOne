@@ -656,6 +656,7 @@ export interface AgentConversationSummary {
   toolCallPlan?: ToolCallPlanSummary;
   lastTransition?: RuntimeStateTransition;
   stateWarningCount?: number;
+  internal?: boolean;
 }
 
 export interface RuntimeEvent {
