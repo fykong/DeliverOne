@@ -162,6 +162,7 @@ export function ToolPlanPanel({
         </div>
       )}
       {toolPlan?.generation?.summary && <p>{toolPlan.generation.summary}</p>}
+      {toolPlan && <ModelOutputDetails toolPlan={toolPlan} />}
       {canEditPlan && (
         <div className="planRewriteBox">
           <label>
@@ -318,6 +319,32 @@ export function ToolPlanPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function ModelOutputDetails({ toolPlan }: { toolPlan: ToolCallPlan }) {
+  const rawPlan = toolPlan.generation?.rawResponse?.trim();
+  const audits = (toolPlan.audits ?? []).filter((audit) => audit.rawResponse?.trim());
+  if (!rawPlan && !audits.length) return null;
+  return (
+    <details className="modelOutput">
+      <summary>查看模型每步真实输出（{audits.length + (rawPlan ? 1 : 0)} 段）</summary>
+      {rawPlan && (
+        <div className="modelOutputItem">
+          <strong>计划生成（{toolPlan.generation?.source}）</strong>
+          <pre>{rawPlan}</pre>
+        </div>
+      )}
+      {audits.map((audit, index) => (
+        <div className="modelOutputItem" key={`${audit.source}-${index}`}>
+          <strong>
+            {audit.source} · {audit.verdict}
+            {audit.modelSource === "rules" ? "（规则）" : "（模型）"}
+          </strong>
+          <pre>{audit.rawResponse}</pre>
+        </div>
+      ))}
+    </details>
   );
 }
 

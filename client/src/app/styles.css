@@ -171,6 +171,13 @@ button:disabled {
   align-items: center;
 }
 
+.sideHelp {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #66736a;
+}
+
 .inspectorTabs {
   display: flex;
   flex-wrap: wrap;
@@ -231,6 +238,52 @@ button:disabled {
 .inspectorTabBody {
   display: flex;
   flex-direction: column;
+}
+
+.modelOutput {
+  margin: 8px 0;
+  border: 1px solid #1f2a20;
+  border-radius: 8px;
+  background: #0e140d;
+}
+
+.modelOutput > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #8fb898;
+  user-select: none;
+}
+
+.modelOutput > summary:hover {
+  color: #b6d6b6;
+}
+
+.modelOutputItem {
+  padding: 6px 10px 10px;
+  border-top: 1px solid #1a241a;
+}
+
+.modelOutputItem strong {
+  display: block;
+  font-size: 11.5px;
+  color: #9ad0a2;
+  margin-bottom: 4px;
+}
+
+.modelOutputItem pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #c2cdc2;
+  background: #11160f;
+  border-radius: 6px;
+  padding: 8px;
 }
 
 .panelError {

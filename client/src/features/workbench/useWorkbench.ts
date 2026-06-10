@@ -288,7 +288,16 @@ export function useWorkbench() {
   const [messages, setMessages] = useState<ConversationMessage[]>([
     {
       role: "Agent",
-      text: "先在左侧接入仓库。你发送需求后，我会先返回模型生成的方案；你确认后，我再生成可审查的工具调用计划。"
+      text: [
+        "👋 我是 DeliverOne——把你的一句话需求端到端做成可提测 PR 的 AI 交付助手。",
+        "",
+        "三步开始：",
+        "1）在左侧「接入本地仓库」（填你电脑上的项目文件夹路径）或「拉取到沙盒」（GitHub 地址）——系统会复制一份到隔离沙盒，绝不动你的原始项目。",
+        "2）在下方输入框描述需求，点「发送给 Agent」进入开发：澄清 → 方案 → 改代码 → 测试 → 提测。需求模糊时我会带选项追问。",
+        "3）想先聊聊（问我是谁、能做什么、改了哪些文件）就点「提问」，不会触发开发流程。",
+        "",
+        "勾选「托管模式」可一条指令自动跑到提测；右侧分 7 个标签页查看计划、代码、验证、交付等证据。"
+      ].join("\n")
     }
   ]);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);

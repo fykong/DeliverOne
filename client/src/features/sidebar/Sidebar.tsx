@@ -56,11 +56,12 @@ export function Sidebar({
 
       <section className="sideSection">
         <div className="sideTitle">仓库</div>
+        <p className="sideHelp">把一个项目复制进隔离沙盒让 AI 修改，原始项目不受影响。</p>
         <label className="sideField">
           <span>本地路径</span>
-          <input value={localPath} onChange={(event) => onLocalPathChange(event.target.value)} placeholder="C:\\path\\to\\repo" />
+          <input value={localPath} onChange={(event) => onLocalPathChange(event.target.value)} placeholder="C:\\path\\to\\repo" title="你电脑上的项目文件夹绝对路径" />
         </label>
-        <button className="sideAction" type="button" onClick={onConnectLocal} disabled={isRunning || !localPath.trim()}>
+        <button className="sideAction" type="button" onClick={onConnectLocal} disabled={isRunning || !localPath.trim()} title="复制本地文件夹到沙盒">
           <FolderGit2 size={16} />
           接入本地仓库
         </button>
@@ -92,7 +93,7 @@ export function Sidebar({
             </button>
           )}
           {onCleanup && (
-            <button type="button" className="linkButton" onClick={onCleanup} disabled={isRunning} title="清理空的孤儿目录">
+            <button type="button" className="linkButton" onClick={onCleanup} disabled={isRunning} title="删除残留的空会话目录,释放磁盘">
               <Trash2 size={13} />
               清理
             </button>
