@@ -137,7 +137,9 @@ function TaskLedgerStrip({
   const files = firstValues(intent?.fileHints, searchIntent?.fileHints, 3);
   const nextSteps = firstValues(taskLedger?.nextSteps, undefined, 3);
   const phases = (taskLedger?.phases ?? []).slice(0, 7);
-  const source = intent?.source || searchIntent?.source || "rules";
+  const rawSource = intent?.source || searchIntent?.source || "rules";
+  // 对 PM 翻译内部术语:rules=规则分析(模型未参与),model=模型分析。
+  const source = rawSource === "model" ? "模型分析" : rawSource === "rules" ? "规则分析" : rawSource;
   const confidence = intent?.confidence ?? searchIntent?.confidence;
 
   return (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -1174,13 +1175,23 @@ def preview_start(body: PreviewStartBody) -> dict[str, Any]:
     _repository, sandbox = _context_for(conversation_id)
     if not sandbox:
         raise HTTPException(status_code=400, detail="当前对话还没有沙盒。")
-    return services.processes.start(
+    command = body.command
+    repo_root = Path(sandbox["repoPath"])
+    # 沙盒首次预览大概率没装依赖,npm run dev 会立刻失败、页面空白。
+    # 检测到缺 node_modules 时自动先安装(命令链式拼接,日志可见)。
+    needs_install = (repo_root / "package.json").exists() and not (repo_root / "node_modules").exists()
+    if needs_install and command.strip().startswith("npm"):
+        command = f"npm install --no-audit --no-fund && {command}"
+    result = services.processes.start(
         conversation_id=conversation_id,
         sandbox_id=sandbox["id"],
-        command=body.command,
+        command=command,
         cwd=sandbox["repoPath"],
         ports=body.ports,
     )
+    if needs_install:
+        result["note"] = "检测到沙盒未安装依赖，已自动先执行 npm install（首次需 1-3 分钟），完成后预览会自动出现。"
+    return result
 
 
 @app.post("/api/preview/stop")

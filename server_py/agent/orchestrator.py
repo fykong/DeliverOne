@@ -373,6 +373,57 @@ class AgentOrchestrator:
         except Exception as error:
             return {"status": "error", "reason": f"页面级终检执行失败：{error}"}
 
+    def _looks_like_question(self, text: str, conversation_id: str | None = None) -> bool:
+        """确定性识别明显的提问/寒暄,直接走对话回答而非交付管道。
+
+        保守判定:出现任何开发动词/名词就视为需求;等待澄清回答时不触发
+        (用户的简短回答要走合并链路,不能被当成提问)。
+        """
+        cleaned = text.strip()
+        if not cleaned or len(cleaned) > 60:
+            return False
+        if conversation_id:
+            state = self.conversations.get(conversation_id)
+            turns = state.get("turns") if isinstance(state.get("turns"), list) else []
+            last_turn = turns[-1] if turns else None
+            if isinstance(last_turn, dict) and last_turn.get("phase") == "clarification":
+                return False
+        dev_markers = [
+            "新增", "添加", "增加", "修改", "实现", "开发", "修复", "优化", "删除", "重构",
+            "字段", "页面", "接口", "按钮", "展示", "显示", "支持", "功能", "需求", "上线",
+            "样式", "组件", "测试", "部署", "选A", "选B", "选C", "选D", "选 a", "选 b",
+        ]
+        lowered = cleaned.lower()
+        if any(marker.lower() in lowered for marker in dev_markers):
+            return False
+        question_markers = [
+            "你是谁", "你是什么", "能做什么", "会做什么", "怎么用", "如何使用", "是什么意思",
+            "什么意思", "为什么", "你好", "在吗", "谢谢", "介绍一下", "改了什么", "解释",
+            "什么情况", "进展", "做到哪", "干嘛", "帮我做什么",
+        ]
+        if any(marker in cleaned for marker in question_markers):
+            return True
+        return cleaned.endswith(("?", "？", "吗", "嘛"))
+
+    def _answer_as_conversation(self, conversation_id: str, user_input: str, source: str) -> dict[str, Any]:
+        self.events.append(
+            conversation_id,
+            "ask.auto_routed",
+            {"source": source, "input": user_input[:200]},
+            actor="runtime",
+        )
+        result = self.ask_service.answer(conversation_id, user_input)
+        state = self.conversations.get(conversation_id)
+        stamp = now_iso()
+        state.setdefault("messages", []).append(
+            {"id": f"msg_ask_{stamp}", "role": "user", "content": user_input, "createdAt": stamp}
+        )
+        state["messages"].append(
+            {"id": f"msg_ans_{stamp}", "role": "agent", "content": result["reply"], "createdAt": stamp}
+        )
+        self.conversations.save(state)
+        return {"ask": result}
+
     def _merge_clarification_answer(self, conversation_id: str, user_input: str) -> tuple[str, bool]:
         """用户对澄清追问的简短回答(编号/选项/补充),确定性合并回原始需求。"""
         state = self.conversations.get(conversation_id)
@@ -447,6 +498,10 @@ class AgentOrchestrator:
             raw_input_text = (requirement or "").strip()
             if not raw_input_text:
                 raise RuntimeError("需求不能为空。")
+            # 明显的提问/寒暄直接转对话回答(确定性启发式,省一次澄清调用);
+            # 不明显的交给 Clarifier 的 inputIntent 分类兜底。
+            if self.ask_service and self._looks_like_question(raw_input_text, conversation_id):
+                return self._answer_as_conversation(conversation_id, raw_input_text, source="heuristic")
             # 上一轮是澄清追问时,用户可能只回编号或简短答案;确定性合并
             # 「原始需求+澄清问题+用户回答」,不依赖模型自行从记忆拼装。
             next_requirement, merged_from_clarification = self._merge_clarification_answer(
@@ -482,6 +537,12 @@ class AgentOrchestrator:
                 actor="agent",
             )
             display_message = raw_input_text if merged_from_clarification else None
+            # 用户输入是提问/闲聊而非开发需求时,自动转对话回答——
+            # 用户不需要知道"提问"按钮的存在,发送给 Agent 也能自然对话。
+            intent = str(clarification.get("inputIntent") or "development")
+            if intent in {"question", "chitchat"} and self.ask_service:
+                self.conversations.record_audit(conversation_id, clarification)
+                return self._answer_as_conversation(conversation_id, raw_input_text, source=f"clarifier:{intent}")
             if clarification.get("verdict") == "blocked":
                 # 需求不可执行时短路：不调用规划模型，直接把追问作为 Agent 回复送回对话。
                 turn = self.workflow.clarification_turn(

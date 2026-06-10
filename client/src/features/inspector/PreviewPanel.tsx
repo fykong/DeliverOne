@@ -16,6 +16,17 @@ interface PreviewPanelProps {
   onRunPreviewSmokeTest: (port: number) => void;
 }
 
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    starting: "启动中",
+    running: "运行中",
+    stopped: "已停止",
+    exited: "已退出",
+    failed: "失败",
+  };
+  return labels[status] ?? status;
+}
+
 export function PreviewPanel({
   conversationId,
   processes,
@@ -83,15 +94,19 @@ export function PreviewPanel({
         {activeUrl ? (
           <iframe key={`${activeUrl}-${frameVersion}`} title="沙盒实时预览" src={activeUrl} />
         ) : (
-          <div className="livePreviewEmpty">启动预览命令后显示页面。</div>
+          <div className="livePreviewEmpty">
+            启动预览命令后这里会显示被修改项目的页面。首次启动会自动安装依赖（约 1-3 分钟），页面空白时点「刷新」或查看下方进程日志。
+          </div>
         )}
       </div>
 
       {processes.map((process) => {
         const canStop = process.status === "running" || process.status === "starting";
+        const logTail = [process.stderrTail, process.stdoutTail].filter(Boolean).join("\n").trim();
+        const failed = process.status === "failed" || process.status === "exited";
         return (
           <div className="processRow" key={process.id}>
-            <span>{process.status}</span>
+            <span>{statusLabel(process.status)}</span>
             <code>{process.command}</code>
             <div className="processActions">
               {process.ports.map((port) => (
@@ -111,6 +126,12 @@ export function PreviewPanel({
                 </button>
               )}
             </div>
+            {logTail && (
+              <details className="processLog" open={failed}>
+                <summary>{failed ? "进程已退出——查看日志找原因" : "查看进程日志"}</summary>
+                <pre>{logTail.slice(-2400)}</pre>
+              </details>
+            )}
           </div>
         );
       })}

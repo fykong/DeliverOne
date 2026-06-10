@@ -677,7 +677,7 @@ export function useWorkbench() {
     setIsRunning(true);
     setToolPlan(null);
     pushMessage({ role: "你", text: trimmedRequirement });
-    pushMessage({ role: "Agent", text: "我正在读取仓库画像、匹配 Skill，并调用当前模型生成方案。" });
+    pushMessage({ role: "Agent", text: "正在理解你的输入：开发需求会进入澄清与方案流程，提问会直接对话回答……" });
 
     try {
       const bundle = await runOrchestratorAction({
@@ -686,7 +686,10 @@ export function useWorkbench() {
         requirement: trimmedRequirement
       });
       applyOrchestratorBundle(bundle);
-      if (bundle.turn) {
+      if (bundle.ask) {
+        // 系统识别为提问/闲聊,已自动转对话回答,不进开发流程。
+        pushMessage({ role: "Agent", text: bundle.ask.reply });
+      } else if (bundle.turn) {
         const clarification = latestAudit(bundle.turn.audits, "Clarifier");
         const message = formatAuditMessage(clarification, "Clarifier 结论");
         if (message) {

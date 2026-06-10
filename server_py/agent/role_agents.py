@@ -68,12 +68,16 @@ class AgentRoleSuite:
             source="Clarifier",
             fallback=fallback,
             task=(
-                "你是需求澄清 Agent。逐条对照 clarifyDimensions 检查需求是否可执行；"
+                "你是需求澄清 Agent。第一步先判断输入意图 inputIntent："
+                "development=可落地的代码开发需求（哪怕模糊）；question=对系统/项目/改动情况的提问"
+                "（如『你是谁』『你能做什么』『改了哪些文件』『解释一下方案』）；chitchat=寒暄闲聊。"
+                "inputIntent 不是 development 时，verdict 给 blocked 即可，无需生成澄清问题。"
+                "对 development 输入：逐条对照 clarifyDimensions 检查需求是否可执行；"
                 "如果命中了 skillGuidance 里的需求模式，还要逐条对照该模式的 clarifyChecklist 和 antiPatterns。"
-                "输出三类结果：(1) requirementDsl：把已经明确的部分结构化（goal、pages、dataChanges、apiChanges、uiChanges、"
-                "acceptanceCriteria、nonGoals、assumptions）；(2) ambiguities：每个未明确的维度生成一条，"
+                "输出：(1) inputIntent；(2) requirementDsl：把已经明确的部分结构化（goal、pages、dataChanges、apiChanges、uiChanges、"
+                "acceptanceCriteria、nonGoals、assumptions）；(3) ambiguities：每个未明确的维度生成一条，"
                 "包含 dimension、question（具体、可直接回答、能给选项就给选项）、why、blocking(true/false)；"
-                "(3) antiPatternFindings：自相矛盾、术语未定义、与仓库现状冲突的地方，给出 type、detail、suggestion。"
+                "(4) antiPatternFindings：自相矛盾、术语未定义、与仓库现状冲突的地方，给出 type、detail、suggestion。"
                 "存在 blocking 歧义或矛盾时 verdict 必须是 blocked，并把追问写进 questions；"
                 "需求完整时不要为了提问而提问，直接 pass。"
             ),
@@ -97,8 +101,10 @@ class AgentRoleSuite:
         )
         # blocked 必须可行动：没有任何追问、也没有 error 级 finding 的 blocked
         # 是死路（用户无从回答），降级为 warning 继续进入方案。
+        # 例外:非开发意图(提问/闲聊)的 blocked 无追问是预期行为,由编排器转对话回答。
         if (
             result.get("verdict") == "blocked"
+            and result.get("inputIntent", "development") == "development"
             and not result.get("questions")
             and not any(finding.get("severity") == "error" for finding in result.get("findings", []))
         ):
@@ -284,7 +290,7 @@ class AgentRoleSuite:
                         "只输出 JSON，不要输出 Markdown，不要添加解释性前后缀。",
                         "JSON 顶层必须是对象。",
                         "字段：verdict=pass|warning|blocked，summary，findings，recommendation，questions。",
-                        "Clarifier 还要输出 requirementDsl（对象）、ambiguities（数组）、antiPatternFindings（数组）。",
+                        "Clarifier 还要输出 inputIntent（development|question|chitchat）、requirementDsl（对象）、ambiguities（数组）、antiPatternFindings（数组）。",
                         "Verifier 失败时还要输出 failureClass、repairScope、repairPolicy。",
                         "findings 是数组，每项包含 id、title、detail、severity=info|warning|error。",
                         "repairPolicy 包含 failureClass、severity、autoAllowed、countsTowardCodeRepairLimit、requiresUserConfirmation、maxCodeRepairAttempts、maxTotalRepairSteps、reason。",
@@ -312,6 +318,7 @@ class AgentRoleSuite:
                             ],
                             "recommendation": "下一步建议。",
                             "questions": ["如果需要用户澄清，列出具体问题。"],
+                            "inputIntent": "development",
                             "requirementDsl": {
                                 "goal": "一句话目标（Clarifier 专用）。",
                                 "pages": ["涉及页面/组件"],
@@ -394,6 +401,9 @@ class AgentRoleSuite:
                 verdict = "blocked"
         if isinstance(parsed.get("antiPatternFindings"), list):
             clarifier_extras["antiPatternFindings"] = [item for item in parsed["antiPatternFindings"] if isinstance(item, dict)]
+        intent = str(parsed.get("inputIntent") or "").strip().lower()
+        if intent in {"development", "question", "chitchat"}:
+            clarifier_extras["inputIntent"] = intent
         return {
             **clarifier_extras,
             "id": f"role_{source.lower()}_{now_iso()}",
