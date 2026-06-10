@@ -337,7 +337,7 @@ export function rewriteToolCallPlan(input: { conversationId: string; planId?: st
 
 export function runOrchestratorAction(input: {
   conversationId: string;
-  action: "submit_requirement" | "approve_plan" | "approve_tool_plan" | "execute_tool_plan" | "repair_failed_plan" | "refresh";
+  action: "submit_requirement" | "approve_plan" | "approve_tool_plan" | "execute_tool_plan" | "repair_failed_plan" | "continue_plan" | "refresh";
   requirement?: string;
   planId?: string;
 }) {

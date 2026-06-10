@@ -19,7 +19,7 @@ interface MCPPanelProps {
   approvals: ApprovalGrant[];
   isRunning: boolean;
   onDiscover: () => void;
-  onSaveConfig: (config: Record<string, unknown>) => void;
+  onSaveConfig: (config: Record<string, unknown>) => Promise<boolean>;
   onValidateConfig: (config: Record<string, unknown>) => void;
   onReplayHistory: (historyEntryId: string) => void;
   onGrant: (toolId: string, scope: ApprovalGrant["scope"]) => void;
@@ -190,14 +190,15 @@ export function MCPPanel({
     }
   }
 
-  function saveConfig() {
+  async function saveConfig() {
     if (configUnavailable) {
       setConfigError("配置加载失败，已禁止保存以防覆盖真实配置文件。");
       return;
     }
     const parsed = readConfig();
-    if (parsed) {
-      onSaveConfig(parsed);
+    if (!parsed) return;
+    const ok = await onSaveConfig(parsed);
+    if (ok) {
       setIsEditingConfig(false);
     }
   }

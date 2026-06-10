@@ -84,7 +84,8 @@ export function App() {
         onConfirmPlan={() => void workbench.handleConfirmPlan()}
         onConfirmAndExecuteToolPlan={() => void workbench.handleConfirmAndExecuteToolPlan()}
         onCreateRepairPlan={() => void workbench.handleCreateRepairPlan()}
-        onEditToolPlanStep={(operation, stepId, options) => void workbench.handleEditToolPlanStep(operation, stepId, options)}
+        onContinuePlan={() => void workbench.handleContinuePlan()}
+        onEditToolPlanStep={(operation, stepId, options) => workbench.handleEditToolPlanStep(operation, stepId, options)}
         onRewriteToolPlan={(instruction) => void workbench.handleRewriteToolPlan(instruction)}
         onRollbackCheckpoint={(checkpointId) => void workbench.handleRollbackCheckpoint(checkpointId)}
         onRollbackCheckpointFile={(checkpointId, relativePath) => void workbench.handleRollbackCheckpointFile(checkpointId, relativePath)}
@@ -98,7 +99,7 @@ export function App() {
         onGenerateDeliveryPackage={() => void workbench.handleGenerateDeliveryPackage()}
         onApplyDeliveryToSource={() => void workbench.handleApplyDeliveryToSource()}
         onDiscoverMCPTools={() => void workbench.handleDiscoverMCPTools()}
-        onSaveMCPConfig={(config) => void workbench.handleSaveMCPConfig(config)}
+        onSaveMCPConfig={(config) => workbench.handleSaveMCPConfig(config)}
         onValidateMCPConfig={(config) => void workbench.handleValidateMCPConfig(config)}
         onReplayMCPHistory={(historyEntryId) => void workbench.handleReplayMCPHistory(historyEntryId)}
         onGrantToolApproval={(toolId, scope, riskLevel, command, requestEventId) =>
@@ -110,7 +111,7 @@ export function App() {
         onRevokeApproval={(grantId) => void workbench.handleRevokeApproval(grantId)}
         onPinMemory={(itemId, pinned) => void workbench.handlePinMemory(itemId, pinned)}
         onForgetMemory={(itemId) => void workbench.handleForgetMemory(itemId)}
-        onUpsertManualMemory={(input) => void workbench.handleUpsertManualMemory(input)}
+        onUpsertManualMemory={(input) => workbench.handleUpsertManualMemory(input)}
         onGenerateMemoryPatchDraft={() => void workbench.handleGenerateMemoryPatchDraft()}
         onApplyMemoryPatchCandidate={(candidate) => void workbench.handleApplyMemoryPatchCandidate(candidate)}
         onRefreshEvidence={() => void workbench.refreshEvidence()}

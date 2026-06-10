@@ -16,7 +16,7 @@ interface MemoryPanelProps {
     tags?: string[];
     pinned?: boolean;
     importance?: number;
-  }) => void;
+  }) => Promise<boolean>;
   onGenerateMemoryPatchDraft: () => void;
   onApplyMemoryPatchCandidate: (candidate: MemoryPatchCandidate) => void;
 }
@@ -85,9 +85,11 @@ export function MemoryPanel({
     });
   }
 
-  function submitForm() {
+  async function submitForm() {
     if (!form) return;
-    onUpsertManualMemory({
+    // 数字输入清空或填非法值时 importance 会是 NaN，序列化成 null 会触发后端 422；此时直接不传该字段。
+    const safeImportance = Number.isFinite(form.importance) ? form.importance : undefined;
+    const ok = await onUpsertManualMemory({
       itemId: form.itemId,
       title: form.title,
       content: form.content,
@@ -97,9 +99,11 @@ export function MemoryPanel({
         .map((tag) => tag.trim())
         .filter(Boolean),
       pinned: form.pinned,
-      importance: form.importance
+      importance: safeImportance
     });
-    setForm(null);
+    if (ok) {
+      setForm(null);
+    }
   }
 
   return (

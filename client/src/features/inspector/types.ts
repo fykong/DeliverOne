@@ -64,11 +64,12 @@ export interface InspectorProps {
   onConfirmPlan: () => void;
   onConfirmAndExecuteToolPlan: () => void;
   onCreateRepairPlan: () => void;
+  onContinuePlan: () => void;
   onEditToolPlanStep: (
     operation: "skip_step" | "restore_step" | "update_step" | "move_step",
     stepId: string,
     options?: { reason?: string; title?: string; purpose?: string; input?: Record<string, unknown>; targetOrder?: number }
-  ) => void;
+  ) => Promise<boolean>;
   onRewriteToolPlan: (instruction: string) => void;
   onRollbackCheckpoint: (checkpointId: string) => void;
   onRollbackCheckpointFile: (checkpointId: string, relativePath: string) => void;
@@ -80,7 +81,7 @@ export interface InspectorProps {
   onGenerateDeliveryPackage: () => void;
   onApplyDeliveryToSource: () => void;
   onDiscoverMCPTools: () => void;
-  onSaveMCPConfig: (config: Record<string, unknown>) => void;
+  onSaveMCPConfig: (config: Record<string, unknown>) => Promise<boolean>;
   onValidateMCPConfig: (config: Record<string, unknown>) => void;
   onReplayMCPHistory: (historyEntryId: string) => void;
   onGrantToolApproval: (toolId: string, scope: ApprovalGrant["scope"], riskLevel?: string, command?: string, requestEventId?: string) => void;
@@ -96,7 +97,7 @@ export interface InspectorProps {
     tags?: string[];
     pinned?: boolean;
     importance?: number;
-  }) => void;
+  }) => Promise<boolean>;
   onGenerateMemoryPatchDraft: () => void;
   onApplyMemoryPatchCandidate: (candidate: MemoryPatchCandidate) => void;
   onRefreshEvidence: () => void;

@@ -75,7 +75,15 @@ export function RollbackPanel({ conversationId, checkpoints, sandboxRuntime, isR
               <strong>{checkpoint.label}</strong>
               <span>{checkpoint.files.length} 个文件</span>
             </div>
-            <button type="button" disabled={isRunning} onClick={() => onRollbackCheckpoint(checkpoint.id)}>
+            <button
+              type="button"
+              disabled={isRunning}
+              onClick={() => {
+                if (window.confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`)) {
+                  onRollbackCheckpoint(checkpoint.id);
+                }
+              }}
+            >
               回退
             </button>
           </div>

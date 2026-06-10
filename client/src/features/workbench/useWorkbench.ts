@@ -545,9 +545,13 @@ export function useWorkbench() {
   async function handleModelChange(modelId: string) {
     if (!models) return;
     if (modelId === models.defaultModelId || models.models.length <= 1) return;
-    const next = await saveModelSettings({ defaultModelId: modelId });
-    setModels(next);
-    pushMessage({ role: "系统", text: `默认模型已切换为 ${next.models.find((model) => model.id === next.defaultModelId)?.displayName ?? modelId}。新的对话会使用这个模型。` });
+    try {
+      const next = await saveModelSettings({ defaultModelId: modelId });
+      setModels(next);
+      pushMessage({ role: "系统", text: `默认模型已切换为 ${next.models.find((model) => model.id === next.defaultModelId)?.displayName ?? modelId}。新的对话会使用这个模型。` });
+    } catch (error) {
+      pushMessage({ role: "Agent", text: `切换模型失败：${error instanceof Error ? error.message : String(error)}` });
+    }
   }
 
   async function connectRepository(kind: "local" | "github") {
@@ -745,12 +749,34 @@ export function useWorkbench() {
     }
   }
 
+  async function handleContinuePlan() {
+    if (!toolPlan || isBusy) return;
+    setIsRunning(true);
+    try {
+      const bundle = await runOrchestratorAction({ conversationId, action: "continue_plan", planId: toolPlan.id });
+      applyOrchestratorBundle(bundle);
+      if (bundle.toolPlan) {
+        pushMessage({ role: "Agent", text: `${formatRepairPlanTrace(bundle.toolPlan)}\n上一轮已完成但需求尚未落地，已生成下一阶段待确认计划，请在右侧审查后再执行。` });
+      } else if (bundle.continuationLoop && !bundle.continuationLoop.created) {
+        pushMessage({ role: "Agent", text: bundle.continuationLoop.reason ?? "当前不需要继续推进计划。" });
+      }
+      await refreshConversations();
+    } catch (error) {
+      pushMessage({ role: "Agent", text: `继续推进失败：${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
   async function handleEditToolPlanStep(
     operation: "skip_step" | "restore_step" | "update_step" | "move_step",
     stepId: string,
     options: { reason?: string; title?: string; purpose?: string; input?: Record<string, unknown>; targetOrder?: number } = {}
-  ) {
-    if (!toolPlan || isBusy) return;
+  ): Promise<boolean> {
+    if (!toolPlan || isBusy) {
+      if (isBusy) pushMessage({ role: "系统", text: "当前有任务在执行，请等待完成后再编辑工具计划。" });
+      return false;
+    }
     setIsRunning(true);
     try {
       const nextPlan = await editToolCallPlan({
@@ -763,8 +789,10 @@ export function useWorkbench() {
       setToolPlan(nextPlan);
       pushMessage({ role: "系统", text: "工具计划已更新，执行前请重新审查右侧步骤。" });
       await refreshEvidence();
+      return true;
     } catch (error) {
       pushMessage({ role: "Agent", text: `编辑工具计划失败：${error instanceof Error ? error.message : String(error)}` });
+      return false;
     } finally {
       setIsRunning(false);
     }
@@ -912,12 +940,24 @@ export function useWorkbench() {
       pushMessage({ role: "Agent", text: `${formatRepairPlanTrace(bundle.repairPlan)}\n后端 Orchestrator 已生成下一轮待确认修复计划，请审查右侧步骤后点击“确认并执行”。` });
     } else if (plan.status === "failed" || plan.steps.some((step) => step.status === "failed")) {
       pushMessage({ role: "Agent", text: bundle.repairLoop?.reason ?? repairStopMessage(plan) });
+    } else if (bundle.continuationLoop) {
+      if (bundle.continuationLoop.created && bundle.toolPlan && bundle.toolPlan.id !== plan.id) {
+        pushMessage({
+          role: "Agent",
+          text: `${formatRepairPlanTrace(bundle.toolPlan)}\n${bundle.continuationLoop.reason ?? "上一轮已完成但需求尚未落地，已生成下一阶段待确认计划。"}\n请审查右侧步骤后点击“确认并执行”。`
+        });
+      } else if (!bundle.continuationLoop.created && bundle.continuationLoop.reason) {
+        pushMessage({ role: "Agent", text: bundle.continuationLoop.reason });
+      }
     }
     await refreshConversations();
   }
 
   async function handleRollbackCheckpoint(checkpointId: string) {
-    if (isBusy) return;
+    if (isBusy) {
+      pushMessage({ role: "系统", text: "当前有任务在执行，请等待完成后再回退检查点。" });
+      return;
+    }
     setIsRunning(true);
     try {
       const result = await rollbackCheckpoint({ conversationId, checkpointId });
@@ -931,7 +971,10 @@ export function useWorkbench() {
   }
 
   async function handleRollbackCheckpointFile(checkpointId: string, relativePath: string) {
-    if (isBusy) return;
+    if (isBusy) {
+      pushMessage({ role: "系统", text: "当前有任务在执行，请等待完成后再回退文件。" });
+      return;
+    }
     setIsRunning(true);
     try {
       const result = await rollbackCheckpointFile({ conversationId, checkpointId, relativePath });
@@ -949,7 +992,10 @@ export function useWorkbench() {
   }
 
   async function handleRollbackCheckpointHunk(checkpointId: string, relativePath: string, hunkIndex: number) {
-    if (isBusy) return;
+    if (isBusy) {
+      pushMessage({ role: "系统", text: "当前有任务在执行，请等待完成后再回退变更块。" });
+      return;
+    }
     setIsRunning(true);
     try {
       const result = await rollbackCheckpointHunk({ conversationId, checkpointId, relativePath, hunkIndex });
@@ -1076,23 +1122,28 @@ export function useWorkbench() {
     }
   }
 
-  async function handleSaveMCPConfig(config: Record<string, unknown>) {
-    if (isBusy) return;
+  async function handleSaveMCPConfig(config: Record<string, unknown>): Promise<boolean> {
+    if (isBusy) {
+      pushMessage({ role: "系统", text: "当前有任务在执行，请等待完成后再保存 MCP 配置。" });
+      return false;
+    }
     setIsRunning(true);
     try {
       const validation = await validateMCPConfig(config);
       setMcpConfigValidation(validation);
       if (!validation.ok) {
         pushMessage({ role: "Agent", text: `MCP 配置校验未通过：${validation.errors.map((item) => item.message).join("；")}` });
-        return;
+        return false;
       }
       const saved = await saveMCPConfig(config);
       setMcpConfig(saved);
       await refreshRuntimeState();
       const warningText = validation.warnings.length ? `\n提示：${validation.warnings.map((item) => item.message).join("；")}` : "";
       pushMessage({ role: "系统", text: `MCP 配置已保存。请按需点击“发现 MCP 工具”刷新外部工具。${warningText}` });
+      return true;
     } catch (error) {
       pushMessage({ role: "Agent", text: `保存 MCP 配置失败：${error instanceof Error ? error.message : String(error)}` });
+      return false;
     } finally {
       setIsRunning(false);
     }
@@ -1219,15 +1270,20 @@ export function useWorkbench() {
     tags?: string[];
     pinned?: boolean;
     importance?: number;
-  }) {
-    if (isBusy) return;
+  }): Promise<boolean> {
+    if (isBusy) {
+      pushMessage({ role: "系统", text: "当前有任务在执行，请等待完成后再保存长期记忆。" });
+      return false;
+    }
     setIsRunning(true);
     try {
       const result = await upsertManualMemory({ conversationId, ...input });
       await refreshRuntimeState();
       pushMessage({ role: "系统", text: `长期记忆已保存：${result.item.title}` });
+      return true;
     } catch (error) {
       pushMessage({ role: "Agent", text: `保存长期记忆失败：${error instanceof Error ? error.message : String(error)}` });
+      return false;
     } finally {
       setIsRunning(false);
     }
@@ -1364,6 +1420,7 @@ export function useWorkbench() {
     handleApproveToolPlan,
     handleConfirmAndExecuteToolPlan,
     handleConfirmPlan,
+    handleContinuePlan,
     handleCreateRepairPlan,
     handleEditTaskState,
     handleEditToolPlanStep,

@@ -1143,6 +1143,14 @@ export interface AgentOrchestratorBundle {
     repairSequence?: number;
     reason: string;
   } | null;
+  continuationLoop?: {
+    created: boolean;
+    sourcePlanId?: string;
+    continuationPlanId?: string;
+    continuationSequence?: number;
+    trigger?: string;
+    reason?: string;
+  } | null;
   checkpoints: CheckpointManifest[];
   events: RuntimeEvent[];
   processes: ManagedProcess[];

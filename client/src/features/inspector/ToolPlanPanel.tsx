@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, Ban, CheckCircle2, FileCode2, GitCompareArrows, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Ban, CheckCircle2, FileCode2, GitCompareArrows, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { ToolCallPlan, ToolCallPlanStep } from "@workbench/shared";
 import { toolPlanStatusLabels } from "./constants";
@@ -10,11 +10,12 @@ interface ToolPlanPanelProps {
   isRunning: boolean;
   onConfirmAndExecuteToolPlan: () => void;
   onCreateRepairPlan: () => void;
+  onContinuePlan: () => void;
   onEditToolPlanStep: (
     operation: ToolStepEditOperation,
     stepId: string,
     options?: { reason?: string; title?: string; purpose?: string; input?: Record<string, unknown>; targetOrder?: number }
-  ) => void;
+  ) => Promise<boolean>;
   onRewriteToolPlan: (instruction: string) => void;
   onOpenDiffFile: (path: string) => void;
   onOpenCheckpointDiff: (checkpointId: string) => void;
@@ -26,6 +27,7 @@ export function ToolPlanPanel({
   isRunning,
   onConfirmAndExecuteToolPlan,
   onCreateRepairPlan,
+  onContinuePlan,
   onEditToolPlanStep,
   onRewriteToolPlan,
   onOpenDiffFile,
@@ -42,6 +44,7 @@ export function ToolPlanPanel({
     !reviewerBlocked &&
     (toolPlan?.status === "waiting_confirmation" || toolPlan?.status === "approved" || toolPlan?.status === "waiting_approval");
   const canCreateRepairPlan = Boolean(toolPlan && (toolPlan.status === "failed" || toolPlan.status === "waiting_approval" || toolPlan.steps.some((step) => step.status === "failed")));
+  const canContinuePlan = Boolean(toolPlan && toolPlan.status === "completed" && !toolPlan.steps.some((step) => step.status === "failed"));
   const failedFindings = verifierAudit?.findings.filter((finding) => finding.severity === "error") ?? [];
   const primaryLabel = toolPlan?.status === "waiting_approval" ? "继续执行" : toolPlan?.repairOfPlanId ? "确认修复并执行" : "确认并执行";
   const repairPolicy = toolPlan?.repairPolicy;
@@ -73,19 +76,26 @@ export function ToolPlanPanel({
     setEditError(null);
   }
 
-  function submitStepEditor() {
+  async function submitStepEditor() {
     if (!editingStep) return;
+    let parsed: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(editInputText) as Record<string, unknown>;
-      onEditToolPlanStep("update_step", editingStep.id, {
-        title: editTitle,
-        purpose: editPurpose,
-        input: parsed,
-        reason: editReason.trim() || "用户审查后修改工具步骤。"
-      });
-      closeStepEditor();
+      parsed = JSON.parse(editInputText) as Record<string, unknown>;
     } catch (error) {
       setEditError(`参数 JSON 格式不正确：${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    setEditError(null);
+    const ok = await onEditToolPlanStep("update_step", editingStep.id, {
+      title: editTitle,
+      purpose: editPurpose,
+      input: parsed,
+      reason: editReason.trim() || "用户审查后修改工具步骤。"
+    });
+    if (ok) {
+      closeStepEditor();
+    } else {
+      setEditError("保存失败，请查看左侧消息后重试。已保留你的修改。");
     }
   }
 
@@ -223,7 +233,15 @@ export function ToolPlanPanel({
                 </button>
               )}
               {step.checkpointId && (
-                <button type="button" disabled={isRunning} onClick={() => onRollbackCheckpoint(step.checkpointId!)}>
+                <button
+                  type="button"
+                  disabled={isRunning}
+                  onClick={() => {
+                    if (window.confirm(`确认回退步骤「${step.title}」对应的检查点？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`)) {
+                      onRollbackCheckpoint(step.checkpointId!);
+                    }
+                  }}
+                >
                   <RotateCcw size={13} />
                   回退
                 </button>
@@ -245,6 +263,12 @@ export function ToolPlanPanel({
         <button className="inspectorButton secondary" type="button" disabled={isRunning} onClick={onCreateRepairPlan}>
           <RefreshCw size={16} />
           生成修复计划
+        </button>
+      )}
+      {toolPlan && canContinuePlan && (
+        <button className="inspectorButton secondary" type="button" disabled={isRunning} onClick={onContinuePlan}>
+          <ArrowRight size={16} />
+          继续推进需求
         </button>
       )}
       {editingStep && (

@@ -151,7 +151,15 @@ export function SandboxFilePanel({
                   <button type="button" disabled={isRunning} onClick={() => onOpenCheckpointDiff(checkpoint.id)}>
                     Diff
                   </button>
-                  <button type="button" disabled={isRunning} onClick={() => onRollbackCheckpoint(checkpoint.id)}>
+                  <button
+                    type="button"
+                    disabled={isRunning}
+                    onClick={() => {
+                      if (window.confirm(`确认回退到检查点「${checkpoint.label}」？这会把沙盒文件还原到该检查点时的状态，无法直接撤销。`)) {
+                        onRollbackCheckpoint(checkpoint.id);
+                      }
+                    }}
+                  >
                     回退
                   </button>
                 </div>
@@ -175,7 +183,11 @@ export function SandboxFilePanel({
                     <button
                       type="button"
                       disabled={isRunning}
-                      onClick={() => onRollbackCheckpointFile(selectedCheckpointId, displayedCheckpointFile.path)}
+                      onClick={() => {
+                        if (window.confirm(`确认回退文件「${displayedCheckpointFile.path}」？这会把该沙盒文件还原到检查点时的状态，无法直接撤销。`)) {
+                          onRollbackCheckpointFile(selectedCheckpointId, displayedCheckpointFile.path);
+                        }
+                      }}
                     >
                       回退此文件
                     </button>

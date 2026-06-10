@@ -53,6 +53,7 @@ export function Inspector({
   onConfirmPlan,
   onConfirmAndExecuteToolPlan,
   onCreateRepairPlan,
+  onContinuePlan,
   onEditToolPlanStep,
   onRewriteToolPlan,
   onRollbackCheckpoint,
@@ -104,6 +105,7 @@ export function Inspector({
         isRunning={isRunning}
         onConfirmAndExecuteToolPlan={onConfirmAndExecuteToolPlan}
         onCreateRepairPlan={onCreateRepairPlan}
+        onContinuePlan={onContinuePlan}
         onEditToolPlanStep={onEditToolPlanStep}
         onRewriteToolPlan={onRewriteToolPlan}
         onOpenDiffFile={onOpenDiffFile}
