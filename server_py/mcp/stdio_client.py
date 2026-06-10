@@ -115,6 +115,14 @@ class MCPStdioClient:
     def _start(self, server: dict[str, Any]) -> subprocess.Popen[bytes]:
         command = str(server.get("command") or "").strip()
         args = [str(item) for item in server.get("args", []) if item is not None]
+        # Windows 上 CreateProcess 不解析 PATHEXT:Popen("npx") 找不到 npx.cmd
+        # 直接 FileNotFoundError。非绝对路径先用 which 解析出真实可执行文件。
+        if command and not os.path.isabs(command):
+            import shutil
+
+            resolved = shutil.which(command)
+            if resolved:
+                command = resolved
         env = os.environ.copy()
         env_config = server.get("env", {})
         if isinstance(env_config, dict):

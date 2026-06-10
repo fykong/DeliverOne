@@ -29,6 +29,10 @@ class MetricStore:
                 "completionTokens": completion_tokens,
                 "totalTokens": prompt_tokens + completion_tokens,
                 "estimatedCost": cost,
+                # 前缀缓存命中与预算守卫观测:命中部分按输入价 2 折计费。
+                "cachedPromptTokens": metrics.get("cachedPromptTokens"),
+                "cacheHitRate": metrics.get("cacheHitRate"),
+                "inputTrimmed": metrics.get("inputTrimmed"),
             },
         )
 

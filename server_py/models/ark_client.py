@@ -7,6 +7,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from server_py.models.budget_guard import fit_messages
+
 
 class ArkClient:
     # 429/5xx 与网络抖动重试：等待秒数即重试间隔，长度即最大重试次数。
@@ -33,13 +35,20 @@ class ArkClient:
 
         model_name = os.environ.get(model.get("modelEnv") or "") or model.get("model")
         timeout_seconds = int(model.get("timeoutSeconds") or 60)
+        max_output = int(model.get("maxOutputTokens") or 16384)
+        # 发送前全局预算守卫:上下文窗口 - 输出预留 - 安全余量,超了截最大消息的中段。
+        context_window = int(model.get("contextWindowTokens") or 96000)
+        from server_py.models.budget_guard import SAFETY_MARGIN_TOKENS
+
+        fitted_messages, budget_report = fit_messages(messages, max(context_window - max_output - SAFETY_MARGIN_TOKENS, 8000))
+        self._last_budget_report = budget_report
         body = json.dumps(
             {
                 "model": model_name,
-                "messages": messages,
+                "messages": fitted_messages,
                 "temperature": float(model.get("temperature", 0.2)),
                 # 跨栈写入计划要在单次输出里携带多个完整文件，默认输出上限会截断 JSON。
-                "max_tokens": int(model.get("maxOutputTokens") or 16384),
+                "max_tokens": max_output,
             }
         ).encode("utf-8")
 
@@ -53,6 +62,10 @@ class ArkClient:
         if not reply:
             raise RuntimeError("模型返回了空回复，请稍后重试或检查模型配额。")
         self.last_metrics = self._metrics(started, messages, reply, payload.get("usage") or {})
+        budget_report = getattr(self, "_last_budget_report", None)
+        if isinstance(budget_report, dict) and budget_report.get("trimmed"):
+            self.last_metrics["inputTrimmed"] = True
+            self.last_metrics["trimmedTokens"] = budget_report.get("trimmedTokens")
         return reply
 
     def _post_with_retry(self, endpoint: str, body: bytes, api_key: str, timeout_seconds: int) -> dict[str, Any]:
@@ -121,9 +134,19 @@ class ArkClient:
         prompt_text = "\n".join(message.get("content", "") for message in messages)
         prompt_tokens = usage.get("prompt_tokens") or usage.get("promptTokens") or max(1, len(prompt_text) // 4)
         completion_tokens = usage.get("completion_tokens") or usage.get("completionTokens") or max(1, len(reply) // 4)
-        return {
+        metrics = {
             "latencyMs": int((time.perf_counter() - started) * 1000),
             "promptTokens": int(prompt_tokens),
             "completionTokens": int(completion_tokens),
             "totalTokens": int(usage.get("total_tokens") or usage.get("totalTokens") or int(prompt_tokens) + int(completion_tokens)),
         }
+        # 前缀缓存命中观测(方舟 OpenAI 兼容字段);命中部分按折扣计费,
+        # prompt 结构已按"静态前缀在前"组织来最大化命中。
+        details = usage.get("prompt_tokens_details")
+        if isinstance(details, dict) and details.get("cached_tokens") is not None:
+            cached = int(details.get("cached_tokens") or 0)
+            metrics["cachedPromptTokens"] = cached
+            if int(prompt_tokens) > 0:
+                # 命中部分按输入价 2 折计费;命中率是验证前缀组织是否生效的唯一手段。
+                metrics["cacheHitRate"] = round(cached / int(prompt_tokens), 4)
+        return metrics

@@ -33,11 +33,22 @@ class AskService:
         self.metrics = metrics
         self.tool_call_plans = tool_call_plans
 
+    # 滚动摘要参数:窗口外未摘要的消息攒到该条数才触发一次压缩调用。
+    SUMMARY_TRIGGER = 14
+    RECENT_WINDOW = 8
+
     def answer(self, conversation_id: str, question: str) -> dict[str, Any]:
         question = (question or "").strip()
         if not question:
             raise RuntimeError("问题不能为空。")
         model = self.models.get_default_model()
+        if model.get("enabled"):
+            # 先把窗口外的旧消息压成滚动摘要(到阈值才真正调模型),
+            # 再构建上下文——本次回答就能用上刚更新的摘要。
+            try:
+                self._maybe_update_rolling_summary(conversation_id, model)
+            except Exception:
+                pass  # 摘要失败不影响回答本身
         context = self._build_context(conversation_id)
         if not model.get("enabled"):
             # 模型不可用时给确定性兜底回答,不让对话直接报错。
@@ -57,6 +68,44 @@ class AskService:
                 "context": context,
             }
 
+    def _maybe_update_rolling_summary(self, conversation_id: str, model: dict[str, Any]) -> None:
+        """对话连续性(Claude Code compaction 的等价物):
+
+        最近 RECENT_WINDOW 条消息原文进上下文;更早的消息不是丢弃,而是
+        增量压缩成一段事实摘要存在会话状态里。摘要+近窗一起喂模型,
+        长对话里"第 9 条之前说过的事"不再失忆,token 仍然有界。
+        """
+        state = self.conversations.get(conversation_id)
+        messages = state.get("messages") if isinstance(state.get("messages"), list) else []
+        summary = state.get("chatSummary") if isinstance(state.get("chatSummary"), dict) else {}
+        up_to = int(summary.get("upToIndex") or 0)
+        cutoff = len(messages) - self.RECENT_WINDOW
+        if cutoff - up_to < self.SUMMARY_TRIGGER:
+            return
+        chunk = [
+            f"[{item.get('role')}] {str(item.get('content') or '')[:500]}"
+            for item in messages[up_to:cutoff]
+            if isinstance(item, dict)
+        ]
+        if not chunk:
+            return
+        prompt = [
+            {
+                "role": "system",
+                "content": "你是会话压缩器。把下面的旧对话压缩成不超过 300 字的事实摘要,只保留:用户的需求和决定、改动过的文件、执行/验证结论、未解决的问题。用中文,不要评论,不要客套。已有摘要时把新内容合并进去输出完整新摘要。",
+            },
+            {
+                "role": "user",
+                "content": "\n".join(
+                    ([f"已有摘要：{summary.get('content')}"] if summary.get("content") else []) + ["新增旧消息：", *chunk]
+                ),
+            },
+        ]
+        new_summary = self.client.complete(model, prompt).strip()[:1500]
+        self.metrics.record_model_call(conversation_id, "ask_summary", model, self.client.last_metrics)
+        state["chatSummary"] = {"content": new_summary, "upToIndex": cutoff}
+        self.conversations.save(state)
+
     def _build_context(self, conversation_id: str) -> dict[str, Any]:
         state = self.conversations.get(conversation_id)
         repository = state.get("repository") if isinstance(state.get("repository"), dict) else None
@@ -64,9 +113,10 @@ class AskService:
         messages = state.get("messages") if isinstance(state.get("messages"), list) else []
         recent = [
             {"role": item.get("role"), "content": str(item.get("content") or "")[:600]}
-            for item in messages[-8:]
+            for item in messages[-self.RECENT_WINDOW :]
             if isinstance(item, dict)
         ]
+        chat_summary = state.get("chatSummary") if isinstance(state.get("chatSummary"), dict) else {}
         plan = self.tool_call_plans.get_plan(conversation_id) if self.tool_call_plans else None
         plan_summary = None
         if isinstance(plan, dict):
@@ -97,6 +147,7 @@ class AskService:
                 "branch": repository.get("branch") if repository else None,
                 "hasSandbox": bool(sandbox),
             },
+            "earlierConversationSummary": chat_summary.get("content") or None,
             "recentMessages": recent,
             "currentPlan": plan_summary,
             "changedFiles": changed_files,

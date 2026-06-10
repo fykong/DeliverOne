@@ -125,6 +125,9 @@ class MCPAdapter:
                 "normalized": {"version": 1, "servers": []},
             }
 
+        # 用户可以直接粘 Claude Code 的 .mcp.json(mcpServers 对象形)。
+        value = self._normalize_config_shape(value)
+
         try:
             version = int(value.get("version") or 1)
         except (TypeError, ValueError):
@@ -526,7 +529,8 @@ class MCPAdapter:
         transport = self._transport(server)
         return {
             "id": f"external.{self._safe_id(server_id)}.{self._safe_id(tool_name)}",
-            "mcpName": f"{server_id}.{tool_name}",
+            # 对外展示遵循 Claude Code 的 mcp__<server>__<tool> 命名惯例。
+            "mcpName": f"mcp__{self._safe_id(server_id)}__{self._safe_id(tool_name)}",
             "source": "external",
             "serverId": server_id,
             "transport": transport,
@@ -544,11 +548,65 @@ class MCPAdapter:
 
     def _config(self) -> dict[str, Any]:
         config = read_json(MCP_SERVERS_PATH, {"version": 1, "servers": []})
-        return config if isinstance(config, dict) else {"version": 1, "servers": []}
+        if not isinstance(config, dict):
+            return {"version": 1, "servers": []}
+        return self._normalize_config_shape(config)
+
+    @staticmethod
+    def _normalize_config_shape(config: dict[str, Any]) -> dict[str, Any]:
+        """兼容 Claude Code 的 .mcp.json 形状:
+
+        CC 用 {"mcpServers": {"<name>": {type, command, args, env, url, headers}}}
+        (对象,键即 server 名);本平台内部用 servers 数组。读到 mcpServers
+        对象时转成数组形,键写入 id,缺省 enabled=true——用户可以把 CC 的
+        配置原样粘进来直接用。
+        """
+        mcp_servers = config.get("mcpServers")
+        if isinstance(mcp_servers, dict) and not config.get("servers"):
+            servers = []
+            for name, entry in mcp_servers.items():
+                if not isinstance(entry, dict):
+                    continue
+                server = dict(entry)
+                server.setdefault("id", str(name))
+                server.setdefault("name", str(name))
+                server.setdefault("enabled", True)
+                servers.append(server)
+            return {"version": int(config.get("version") or 1), "servers": servers, "updatedAt": config.get("updatedAt")}
+        return config
 
     def _config_servers(self) -> list[dict[str, Any]]:
         servers = self._config().get("servers", [])
-        return [server for server in servers if isinstance(server, dict)] if isinstance(servers, list) else []
+        if not isinstance(servers, list):
+            return []
+        return [self._expand_env_refs(server) for server in servers if isinstance(server, dict)]
+
+    @staticmethod
+    def _expand_env_refs(server: dict[str, Any]) -> dict[str, Any]:
+        """${VAR} / ${VAR:-default} 环境变量展开(Claude Code 语义),
+        作用于 command/args/env/url/headers。缺变量且无默认值时保留原文,
+        由 validate 给 warning 而不是让整份配置解析失败。"""
+        import re
+
+        pattern = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
+
+        def expand(value: Any) -> Any:
+            if isinstance(value, str):
+                return pattern.sub(
+                    lambda m: os.environ.get(m.group(1), m.group(2) if m.group(2) is not None else m.group(0)),
+                    value,
+                )
+            if isinstance(value, list):
+                return [expand(item) for item in value]
+            if isinstance(value, dict):
+                return {key: expand(item) for key, item in value.items()}
+            return value
+
+        expanded = dict(server)
+        for field in ("command", "args", "env", "url", "headers", "http_headers"):
+            if field in expanded:
+                expanded[field] = expand(expanded[field])
+        return expanded
 
     def _server_status(self, server: dict[str, Any]) -> dict[str, Any]:
         enabled = bool(server.get("enabled", False))
@@ -621,7 +679,10 @@ class MCPAdapter:
         }
 
     def _transport(self, server: dict[str, Any]) -> str:
-        transport = str(server.get("transport") or "").strip().lower()
+        # 兼容 Claude Code 的 type 字段;streamable-http 是 http 的官方别名。
+        transport = str(server.get("transport") or server.get("type") or "").strip().lower()
+        if transport == "streamable-http":
+            return "http"
         if transport:
             return transport
         if server.get("command"):

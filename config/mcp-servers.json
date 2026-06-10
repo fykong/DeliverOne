@@ -1,5 +1,37 @@
 {
   "version": 1,
-  "servers": [],
-  "updatedAt": "2026-06-09T10:08:39.152056Z"
+  "servers": [
+    {
+      "id": "everything",
+      "name": "MCP 官方示例服务器（演示/回归）",
+      "transport": "stdio",
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-everything"],
+      "enabled": true,
+      "timeoutSeconds": 30,
+      "note": "官方兼容性测试服务器:工具/资源/提示形态齐全,用于演示外部 MCP 发现-审批-调用-回放整条链路。"
+    },
+    {
+      "id": "fetch",
+      "name": "网页抓取（官方 fetch）",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "enabled": true,
+      "timeoutSeconds": 30,
+      "note": "内置工具没有通用联网抓取能力;『参照这个网页/文档改页面』类需求由它补位。离线环境请置 enabled=false。"
+    },
+    {
+      "id": "memory",
+      "name": "知识图谱记忆（官方 memory）",
+      "transport": "stdio",
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-memory"],
+      "env": { "MEMORY_FILE_PATH": "${MCP_MEMORY_PATH:-workspace/mcp-memory.json}" },
+      "enabled": true,
+      "timeoutSeconds": 30,
+      "note": "实体-关系型外部记忆,与内置模式库互补。"
+    }
+  ],
+  "updatedAt": "2026-06-10T00:00:00.000000Z"
 }

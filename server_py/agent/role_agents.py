@@ -279,13 +279,68 @@ class AgentRoleSuite:
             fallback["fallbackReason"] = f"模型角色 JSON 解析失败，已回退规则：{error}"
             return fallback
 
+    # 输出示例固定不变,放进 system 静态前缀:同一角色的 system 内容完全一致,
+    # 方舟前缀缓存可命中"角色规则+示例"整段,user 消息只剩易变的 task+payload。
+    EXPECTED_JSON_EXAMPLE = {
+        "verdict": "warning",
+        "summary": "一句话说明角色结论。",
+        "findings": [
+            {
+                "id": "example",
+                "title": "问题标题",
+                "detail": "具体原因和影响。",
+                "severity": "warning",
+            }
+        ],
+        "recommendation": "下一步建议。",
+        "questions": ["如果需要用户澄清，列出具体问题。"],
+        "inputIntent": "development",
+        "requirementDsl": {
+            "goal": "一句话目标（Clarifier 专用）。",
+            "pages": ["涉及页面/组件"],
+            "dataChanges": ["数据/模型改动"],
+            "apiChanges": ["接口改动"],
+            "uiChanges": ["界面改动"],
+            "acceptanceCriteria": ["验收标准"],
+            "nonGoals": ["明确不做的事"],
+            "assumptions": ["待用户确认的默认假设"],
+        },
+        "ambiguities": [
+            {
+                "dimension": "数据来源",
+                "question": "阅读量从哪里来？A. 前端假数据 B. 后端新增字段",
+                "why": "决定纯前端还是跨栈改动。",
+                "blocking": True,
+            }
+        ],
+        "antiPatternFindings": [
+            {"type": "contradiction", "detail": "矛盾点描述", "suggestion": "给用户的可选路径"}
+        ],
+        "requirementCompleted": False,
+        "failureClass": "code",
+        "repairScope": "test-failure",
+        "repairPolicy": {
+            "failureClass": "code",
+            "severity": "major",
+            "autoAllowed": True,
+            "countsTowardCodeRepairLimit": True,
+            "requiresUserConfirmation": False,
+            "maxCodeRepairAttempts": 3,
+            "maxTotalRepairSteps": 8,
+            "reason": "说明为什么可以继续自动修复。",
+        },
+    }
+
     def _messages(self, source: str, task: str, payload: dict[str, Any]) -> list[dict[str, str]]:
+        # 前缀缓存关键:所有角色共享的静态内容(规则+示例)放最前,
+        # 随角色变化的那一行放 system 末尾——方舟隐式缓存按公共前缀识别
+        # (≥1024 tokens 才可能命中),角色名在第一行会让前缀从头分叉。
         return [
             {
                 "role": "system",
                 "content": "\n".join(
                     [
-                        f"你是本地代码交付 Agent 的 {source} 角色。",
+                        "你是本地代码交付 Agent 的一个审查角色(具体角色见本消息最后一行)。",
                         "必须用中文思考并输出。",
                         "只输出 JSON，不要输出 Markdown，不要添加解释性前后缀。",
                         "JSON 顶层必须是对象。",
@@ -298,68 +353,15 @@ class AgentRoleSuite:
                         "repairPolicy 包含 failureClass、severity、autoAllowed、countsTowardCodeRepairLimit、requiresUserConfirmation、maxCodeRepairAttempts、maxTotalRepairSteps、reason。",
                         "blocked 表示不能进入下一阶段；warning 表示可继续但必须提示风险；pass 表示可继续。",
                         "必须遵守 payload.memory.taskState：用户暂停阶段时给 blocked，用户覆盖下一步动作时按覆盖动作审查。",
+                        "输出 JSON 的结构必须符合下面的 expectedJson 示例（字段值要按本次任务如实填写）：",
+                        json.dumps(self.EXPECTED_JSON_EXAMPLE, ensure_ascii=False, indent=2),
+                        f"本次你的角色是：{source}。",
                     ]
                 ),
             },
             {
                 "role": "user",
-                "content": json.dumps(
-                    {
-                        "task": task,
-                        "payload": payload,
-                        "expectedJson": {
-                            "verdict": "warning",
-                            "summary": "一句话说明角色结论。",
-                            "findings": [
-                                {
-                                    "id": "example",
-                                    "title": "问题标题",
-                                    "detail": "具体原因和影响。",
-                                    "severity": "warning",
-                                }
-                            ],
-                            "recommendation": "下一步建议。",
-                            "questions": ["如果需要用户澄清，列出具体问题。"],
-                            "inputIntent": "development",
-                            "requirementDsl": {
-                                "goal": "一句话目标（Clarifier 专用）。",
-                                "pages": ["涉及页面/组件"],
-                                "dataChanges": ["数据/模型改动"],
-                                "apiChanges": ["接口改动"],
-                                "uiChanges": ["界面改动"],
-                                "acceptanceCriteria": ["验收标准"],
-                                "nonGoals": ["明确不做的事"],
-                                "assumptions": ["待用户确认的默认假设"],
-                            },
-                            "ambiguities": [
-                                {
-                                    "dimension": "数据来源",
-                                    "question": "阅读量从哪里来？A. 前端假数据 B. 后端新增字段",
-                                    "why": "决定纯前端还是跨栈改动。",
-                                    "blocking": True,
-                                }
-                            ],
-                            "antiPatternFindings": [
-                                {"type": "contradiction", "detail": "矛盾点描述", "suggestion": "给用户的可选路径"}
-                            ],
-                            "requirementCompleted": False,
-                            "failureClass": "code",
-                            "repairScope": "test-failure",
-                            "repairPolicy": {
-                                "failureClass": "code",
-                                "severity": "major",
-                                "autoAllowed": True,
-                                "countsTowardCodeRepairLimit": True,
-                                "requiresUserConfirmation": False,
-                                "maxCodeRepairAttempts": 3,
-                                "maxTotalRepairSteps": 8,
-                                "reason": "说明为什么可以继续自动修复。",
-                            },
-                        },
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+                "content": json.dumps({"task": task, "payload": payload}, ensure_ascii=False, indent=2),
             },
         ]
 
