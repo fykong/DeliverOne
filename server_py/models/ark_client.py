@@ -77,7 +77,7 @@ class ArkClient:
             except urllib.error.URLError as error:
                 reason = getattr(error, "reason", error)
                 last_error = RuntimeError(f"模型网络请求失败：{reason}。请检查网络连通性，稍后会自动重试。")
-            except TimeoutError as error:
+            except TimeoutError:
                 last_error = RuntimeError(f"模型调用超过 {timeout_seconds}s 超时。建议错峰调用或稍后重试。")
             except json.JSONDecodeError as error:
                 last_error = RuntimeError(f"模型响应不是合法 JSON：{error}")

@@ -1,0 +1,15 @@
+line-length = 140
+target-version = "py311"
+
+[lint]
+# E/F: 语法与逻辑错误级规则;W: 风格警告。
+select = ["E", "F", "W"]
+ignore = [
+  "E501", # 行长由 line-length 控制,中文注释行宽放宽
+]
+
+[lint.per-file-ignores]
+# services.py 必须在任何业务 import 之前加载 .env(模块级副作用是刻意设计)。
+"server_py/services.py" = ["E402"]
+# 测试与脚本需要先注入 sys.path 再 import 被测模块。
+"server_py/tests/*" = ["E402"]

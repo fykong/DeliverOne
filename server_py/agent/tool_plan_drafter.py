@@ -4,6 +4,13 @@ import json
 import platform
 from typing import Any
 
+from server_py.audit.plan_auditor import PlanAuditor
+from server_py.agent.preview_assertions import build_preview_assertions
+from server_py.memory.memory_service import slim_memory_for_model
+from server_py.models.ark_client import ArkClient
+from server_py.models.model_config import ModelConfigService
+from server_py.observability.metrics import MetricStore
+
 # 注入模型上下文的沙盒平台约束:模型默认倾向 Unix 命令,Windows 上会直接失败。
 SANDBOX_PLATFORM_RULE = (
     f"沙盒运行在 {platform.system()} 上。"
@@ -15,13 +22,6 @@ SANDBOX_PLATFORM_RULE = (
         else "优先使用 POSIX 兼容命令或 npm 脚本。"
     )
 )
-
-from server_py.audit.plan_auditor import PlanAuditor
-from server_py.agent.preview_assertions import build_preview_assertions
-from server_py.memory.memory_service import slim_memory_for_model
-from server_py.models.ark_client import ArkClient
-from server_py.models.model_config import ModelConfigService
-from server_py.observability.metrics import MetricStore
 
 
 class ToolPlanDrafter:
