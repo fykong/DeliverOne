@@ -10,6 +10,8 @@ interface ConversationViewProps {
   isRunning: boolean;
   executionStatus: string | null;
   canSend: boolean;
+  autopilotEnabled: boolean;
+  onAutopilotChange: (value: boolean) => void;
   onRequirementChange: (value: string) => void;
   onRunAgent: () => void;
 }
@@ -22,6 +24,8 @@ export function ConversationView({
   isRunning,
   executionStatus,
   canSend,
+  autopilotEnabled,
+  onAutopilotChange,
   onRequirementChange,
   onRunAgent,
 }: ConversationViewProps) {
@@ -64,8 +68,27 @@ export function ConversationView({
           aria-label="输入需求"
           placeholder="描述你希望 Agent 在当前沙盒仓库里完成的需求..."
         />
+        <div className="composerToggle">
+          <label>
+            <input
+              type="checkbox"
+              checked={autopilotEnabled}
+              disabled={isRunning}
+              onChange={(event) => onAutopilotChange(event.target.checked)}
+              aria-label="托管模式"
+            />
+            托管模式
+          </label>
+          <small>自动确认方案与工具计划，直达提测；澄清问题与高危操作仍会停下</small>
+        </div>
         <div className="composerActions">
-          <span>{canSend ? "计划模式：先生成方案，再由你确认工具调用" : "先在左侧接入一个仓库"}</span>
+          <span>
+            {canSend
+              ? autopilotEnabled
+                ? "托管模式：自动确认并持续执行，直达提测"
+                : "计划模式：先生成方案，再由你确认工具调用"
+              : "先在左侧接入一个仓库"}
+          </span>
           <button onClick={onRunAgent} className="primary" type="button" disabled={isRunning || !canSend || !requirement.trim()}>
             <Play size={18} />
             {isRunning ? "Agent 处理中" : "发送给 Agent"}

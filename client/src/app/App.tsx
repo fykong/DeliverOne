@@ -40,6 +40,8 @@ export function App() {
           isRunning={workbench.isRunning}
           executionStatus={workbench.executionStatus}
           canSend={Boolean(workbench.sandbox)}
+          autopilotEnabled={workbench.autopilotEnabled}
+          onAutopilotChange={workbench.setAutopilotEnabled}
           onRequirementChange={workbench.setRequirement}
           onRunAgent={() => void workbench.handleRunAgent()}
         />

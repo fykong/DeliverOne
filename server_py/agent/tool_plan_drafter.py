@@ -1,7 +1,20 @@
 from __future__ import annotations
 
 import json
+import platform
 from typing import Any
+
+# 注入模型上下文的沙盒平台约束:模型默认倾向 Unix 命令,Windows 上会直接失败。
+SANDBOX_PLATFORM_RULE = (
+    f"沙盒运行在 {platform.system()} 上。"
+    + (
+        "禁止使用 Unix 专有命令（find/grep/ls/cat/rm/sed/awk 等）；"
+        "目录与文件检索用 code.search_files / code.read_file 工具完成，"
+        "需要 shell 时用 PowerShell 兼容命令（Get-ChildItem、Select-String）或 npm 脚本。"
+        if platform.system() == "Windows"
+        else "优先使用 POSIX 兼容命令或 npm 脚本。"
+    )
+)
 
 from server_py.audit.plan_auditor import PlanAuditor
 from server_py.agent.preview_assertions import build_preview_assertions
@@ -256,6 +269,7 @@ class ToolPlanDrafter:
                         '{"reason":"为什么这样改","changes":[{"relativePath":"文件路径","action":"write","content":"完整文件内容"}]}',
                         "新增文件同样使用 changes（relativePath 为新路径，content 为完整内容），新增文件不要求出现在 readFiles。",
                         "完成写入后必须安排 verification.run 步骤（input 用 {}，运行时会按仓库栈选择验证命令）。",
+                        SANDBOX_PLATFORM_RULE,
                         "必须遵守 skillRuntime 中的约束与变更清单（changeChecklist），不要遗漏需求要求的测试文件。",
                         "必须遵守 memory.taskState：用户暂停的阶段不得推进；用户覆盖的下一步动作优先。",
                         "写入仍会等待用户确认，不要假设自动执行。",
@@ -490,6 +504,7 @@ class ToolPlanDrafter:
                         "计划必须先读上下文、定位文件、检查 diff，再考虑验证命令。",
                         "除非已经有足够文件内容，否则不要生成 code.write_file 或 code.apply_patch。",
                         "命令只能用于沙盒仓库，优先选择 package.json 中已有脚本。",
+                        SANDBOX_PLATFORM_RULE,
                         "验证优先使用 verification.run（input 用 {}，运行时会按仓库栈选择验证命令并产出结构化报告）。",
                         "如果直接用 command.run 跑 vitest 测试，必须使用 `npm test -- --run`，避免 watch 模式挂起。",
                         "code.search_files 的 query 必须是 2-5 个提炼后的关键词，不能把整段需求文本当 query。",
@@ -593,6 +608,7 @@ class ToolPlanDrafter:
                         "写入仍会等待用户确认，不要假设会自动执行。",
                         "必须遵守 memory.taskState：用户暂停的阶段不得生成推进该阶段的修复写入/命令步骤；用户覆盖的下一步动作优先。",
                         "验证命令只能使用仓库已有脚本或失败计划中出现过的命令。",
+                        SANDBOX_PLATFORM_RULE,
                         "如果上一轮 browser.preview_smoke 的 assertions 失败，修复计划需要保留同一组断言并在修复后复跑预览验收。",
                     ]
                 ),

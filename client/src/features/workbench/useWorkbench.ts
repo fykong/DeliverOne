@@ -6,6 +6,7 @@ import type {
   AgentOrchestratorBundle,
   AgentTurnResult,
   ApprovalGrant,
+  AutopilotSummary,
   CheckpointManifest,
   DeliveryPreview,
   DeliveryReport,
@@ -73,6 +74,7 @@ import {
   readSandboxFile,
   replayMCPHistory,
   rewriteToolCallPlan,
+  runAutopilot,
   runPreviewSmokeTest,
   runOrchestratorAction,
   saveModelSettings,
@@ -218,6 +220,31 @@ function formatRepairPlanTrace(plan: ToolCallPlan) {
     .join("\n");
 }
 
+function formatAutopilotSummary(summary: AutopilotSummary | null | undefined) {
+  if (!summary) return null;
+  const lines: string[] = [];
+  if (summary.finished) {
+    const submission = summary.submission;
+    if (submission?.branch) {
+      const commit = submission.commitSha ? submission.commitSha.slice(0, 8) : "未知";
+      lines.push(`托管完成：${summary.rounds} 轮，提测分支 ${submission.branch}（commit ${commit}）。`);
+    } else {
+      lines.push(`托管完成：${summary.rounds} 轮。${summary.reason}`.trim());
+    }
+    if (submission?.prUrl) {
+      lines.push(`PR 链接：${submission.prUrl}`);
+    }
+  } else if (summary.needsHuman) {
+    lines.push(`托管暂停于 ${summary.stage}：${summary.reason || "需要人工处理。"}`);
+  } else {
+    lines.push(`托管结束于 ${summary.stage}：${summary.reason || "未提供原因。"}`);
+  }
+  if (summary.delivery) {
+    lines.push(`交付门禁：${summary.delivery.verificationGate ?? "unknown"}；变更文件 ${summary.delivery.changedFiles} 个。`);
+  }
+  return lines.join("\n");
+}
+
 export function useWorkbench() {
   const [conversationId, setConversationId] = useState(createConversationId);
   const [conversations, setConversations] = useState<AgentConversationSummary[]>([]);
@@ -267,6 +294,7 @@ export function useWorkbench() {
   const [isRunning, setIsRunning] = useState(false);
   const [isExecutingToolPlan, setIsExecutingToolPlan] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<string | null>(null);
+  const [autopilotEnabled, setAutopilotEnabled] = useState(false);
 
   // 写动作（含长执行）统一用这个标记禁用；只读动作只看短动作 isRunning。
   const isBusy = isRunning || isExecutingToolPlan;
@@ -561,6 +589,11 @@ export function useWorkbench() {
     const trimmedRequirement = requirement.trim();
     if (!trimmedRequirement || isBusy || !sandbox) return;
 
+    if (autopilotEnabled) {
+      await runAutopilotRequirement(trimmedRequirement);
+      return;
+    }
+
     setIsRunning(true);
     setToolPlan(null);
     pushMessage({ role: "你", text: trimmedRequirement });
@@ -593,6 +626,39 @@ export function useWorkbench() {
       pushMessage({ role: "Agent", text: `Agent 规划失败：${error instanceof Error ? error.message : String(error)}` });
     } finally {
       setIsRunning(false);
+    }
+  }
+
+  async function runAutopilotRequirement(trimmedRequirement: string) {
+    const targetConversationId = conversationId;
+    // 复用工具计划执行的长任务标记与事件轮询：只禁用写动作，UI 不全局冻结。
+    setIsExecutingToolPlan(true);
+    setToolPlan(null);
+    pushMessage({ role: "你", text: trimmedRequirement });
+    pushMessage({ role: "Agent", text: "托管模式已开启：我会自动确认方案与工具计划并持续执行，遇到澄清问题或高危操作会停下来等你。" });
+    startExecutionPolling(targetConversationId);
+    try {
+      const bundle = await runAutopilot({ conversationId: targetConversationId, requirement: trimmedRequirement });
+      if (conversationIdRef.current !== targetConversationId) {
+        // 托管期间用户切换了会话：不要把旧会话结果写入当前界面。
+        await refreshConversations();
+        return;
+      }
+      applyOrchestratorBundle(bundle);
+      await refreshCurrentDiff(targetConversationId);
+      if (bundle.turn) {
+        pushMessage({ role: "Agent", text: bundle.turn.reply, meta: `模型：${bundle.turn.model.displayName}` });
+      }
+      const summaryText = formatAutopilotSummary(bundle.autopilot);
+      if (summaryText) {
+        pushMessage({ role: "Agent", text: summaryText });
+      }
+      await refreshConversations();
+    } catch (error) {
+      pushMessage({ role: "Agent", text: `托管模式失败：${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      stopExecutionPolling();
+      setIsExecutingToolPlan(false);
     }
   }
 
@@ -1263,6 +1329,7 @@ export function useWorkbench() {
     mcpTools,
     mcpHistory,
     approvals,
+    autopilotEnabled,
     metrics,
     runtimeSnapshot,
     sandboxRuntime,
@@ -1332,6 +1399,7 @@ export function useWorkbench() {
     resetConversation,
     removeConversation,
     selectConversation,
+    setAutopilotEnabled,
     setGithubUrl,
     setLocalPath,
     setPreviewCommand,

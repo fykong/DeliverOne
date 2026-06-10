@@ -101,6 +101,219 @@ class AgentOrchestrator:
             )
             raise
 
+    def autopilot(
+        self,
+        conversation_id: str,
+        requirement: str,
+        repository: dict[str, Any] | None,
+        sandbox: dict[str, Any] | None,
+        max_rounds: int = 12,
+        delivery: Any = None,
+        submission: Any = None,
+        verification_runner: Any = None,
+    ) -> dict[str, Any]:
+        """托管模式：一条需求指令自动推进到提测，免去逐步人工确认。
+
+        自动确认以 actor=autopilot 写入事件流，全程可审计可回退。
+        安全停车点（needsHuman）：澄清不通过、Reviewer 阻断、修复/推进
+        轮次到上限、执行失败且无法自动修复。危险命令仍被权限层拦截。
+        """
+        trace: list[dict[str, Any]] = []
+        summary: dict[str, Any] = {
+            "finished": False,
+            "needsHuman": False,
+            "stage": "submit",
+            "reason": "",
+            "rounds": 0,
+            "trace": trace,
+            "delivery": None,
+            "submission": None,
+        }
+        self.events.append(
+            conversation_id,
+            "autopilot.begin",
+            {"requirement": requirement[:400], "maxRounds": max_rounds},
+            actor="autopilot",
+        )
+
+        def finish(bundle: dict[str, Any]) -> dict[str, Any]:
+            self.events.append(
+                conversation_id,
+                "autopilot.end",
+                {
+                    "finished": summary["finished"],
+                    "needsHuman": summary["needsHuman"],
+                    "stage": summary["stage"],
+                    "reason": summary["reason"],
+                    "rounds": summary["rounds"],
+                },
+                actor="autopilot",
+            )
+            bundle["autopilot"] = summary
+            return bundle
+
+        bundle = self.run(conversation_id, "submit_requirement", repository, sandbox, requirement=requirement)
+        trace.append({"action": "submit_requirement", "phase": (bundle.get("conversation") or {}).get("phase")})
+        turn = bundle.get("turn") or {}
+        if turn.get("phase") == "clarification":
+            summary.update(
+                needsHuman=True,
+                stage="clarification",
+                reason="需求存在阻断性歧义，托管模式停在澄清环节，请先回答追问。",
+            )
+            return finish(bundle)
+
+        state = self.conversations.get(conversation_id)
+        if state.get("phase") == "waiting_plan_confirmation":
+            self.events.append(conversation_id, "autopilot.auto_approve", {"target": "plan"}, actor="autopilot")
+            bundle = self.run(conversation_id, "approve_plan", repository, sandbox, requirement=requirement)
+            trace.append({"action": "approve_plan", "phase": (bundle.get("conversation") or {}).get("phase")})
+        if self.conversations.get(conversation_id).get("phase") == "waiting_sandbox":
+            summary.update(needsHuman=True, stage="sandbox", reason="当前对话还没有沙盒，请先接入仓库。")
+            return finish(bundle)
+
+        while summary["rounds"] < max_rounds:
+            plan = self.tool_call_plans.get_plan(conversation_id)
+            if not plan:
+                summary.update(needsHuman=True, stage="tool-plan", reason="没有生成工具计划。")
+                return finish(bundle)
+            status = plan.get("status")
+            if status == "waiting_confirmation":
+                try:
+                    self.events.append(
+                        conversation_id,
+                        "autopilot.auto_approve",
+                        {"target": "tool_plan", "planId": plan.get("id")},
+                        actor="autopilot",
+                    )
+                    bundle = self.run(conversation_id, "approve_tool_plan", repository, sandbox)
+                    trace.append({"action": "approve_tool_plan", "planId": plan.get("id")})
+                except Exception as error:
+                    summary.update(
+                        needsHuman=True,
+                        stage="review-blocked",
+                        reason=f"工具计划无法自动确认：{error}",
+                    )
+                    return finish(self._bundle(conversation_id))
+                continue
+            if status == "approved":
+                summary["rounds"] += 1
+                bundle = self.run(conversation_id, "execute_tool_plan", repository, sandbox)
+                executed = bundle.get("executedToolPlan") or {}
+                current = bundle.get("toolPlan") or {}
+                trace.append(
+                    {
+                        "action": "execute_tool_plan",
+                        "round": summary["rounds"],
+                        "executedPlanId": executed.get("id"),
+                        "executedStatus": executed.get("status"),
+                        "nextPlanId": current.get("id") if current.get("id") != executed.get("id") else None,
+                        "nextPlanSource": (current.get("generation") or {}).get("source")
+                        if current.get("id") != executed.get("id")
+                        else None,
+                    }
+                )
+                if current.get("id") != executed.get("id") and current.get("status") == "waiting_confirmation":
+                    continue  # 修复或推进计划已就绪，下一轮自动确认
+                if executed.get("status") == "completed":
+                    should_continue, reason = self._should_create_continuation_plan(executed)
+                    if not should_continue:
+                        summary.update(finished=True, stage="done", reason=reason)
+                        break
+                    summary.update(needsHuman=True, stage="continuation", reason=f"推进循环未能自动生成下一轮计划：{reason}")
+                    return finish(bundle)
+                summary.update(
+                    needsHuman=True,
+                    stage="execution-failed",
+                    reason=str(
+                        (bundle.get("repairLoop") or {}).get("reason")
+                        or "执行失败且没有可自动确认的修复计划。"
+                    ),
+                )
+                return finish(bundle)
+            if status == "completed":
+                should_continue, reason = self._should_create_continuation_plan(plan)
+                if not should_continue:
+                    summary.update(finished=True, stage="done", reason=reason)
+                    break
+                try:
+                    self._create_continuation_plan(conversation_id, plan)
+                    continue
+                except Exception as error:
+                    summary.update(needsHuman=True, stage="continuation", reason=str(error))
+                    return finish(self._bundle(conversation_id))
+            summary.update(needsHuman=True, stage="plan-status", reason=f"计划状态 {status} 需要人工处理。")
+            return finish(self._bundle(conversation_id))
+
+        if not summary["finished"]:
+            summary.update(needsHuman=True, stage="round-cap", reason=f"托管轮次达到上限 {max_rounds}，请人工审查后继续。")
+            return finish(self._bundle(conversation_id))
+
+        # 交付前终检：重新跑一次验证，避免门禁读到历史失败报告。
+        if verification_runner is not None:
+            try:
+                state = self.conversations.get(conversation_id)
+                sandbox_state = state.get("sandbox") or {}
+                if sandbox_state.get("repoPath"):
+                    self.events.append(conversation_id, "autopilot.final_verification.begin", {}, actor="autopilot")
+                    final_report = verification_runner.run(
+                        conversation_id=conversation_id,
+                        sandbox={"id": sandbox_state.get("id"), "repoPath": sandbox_state.get("repoPath")},
+                    )
+                    self.events.append(
+                        conversation_id,
+                        "autopilot.final_verification.end",
+                        {"status": final_report.get("status"), "summary": str(final_report.get("summary"))[:200]},
+                        actor="autopilot",
+                    )
+                    if final_report.get("status") != "pass":
+                        summary.update(
+                            finished=False,
+                            needsHuman=True,
+                            stage="final-verification",
+                            reason=f"交付终检未通过：{final_report.get('summary')}",
+                        )
+                        return finish(self._bundle(conversation_id))
+            except Exception as error:
+                summary["reason"] += f"（交付终检执行失败：{error}）"
+
+        # 验证绿后自动产出交付物：交付包 + 提测分支（PR-ready / GitHub PR）。
+        if delivery is not None and submission is not None:
+            try:
+                state = self.conversations.get(conversation_id)
+                plan = self.tool_call_plans.sync_latest_reports(conversation_id) or self.tool_call_plans.get_plan(conversation_id)
+                checkpoints = self.checkpoints.list(conversation_id)
+                events = self.events.list(conversation_id, 300)
+                report = delivery.package(conversation_id, state, plan, checkpoints, events)
+                summary["delivery"] = {
+                    "verificationGate": (report.get("verificationGate") or {}).get("status"),
+                    "changedFiles": len(report.get("changedFiles", [])),
+                }
+                if (report.get("verificationGate") or {}).get("status") == "pass":
+                    record = submission.submit(
+                        conversation_id,
+                        state,
+                        plan,
+                        confirmed=True,
+                        title=self._autopilot_title(requirement),
+                    )
+                    summary["submission"] = {
+                        "mode": record.get("mode"),
+                        "branch": record.get("branch"),
+                        "commitSha": record.get("commitSha"),
+                        "prUrl": (record.get("pullRequest") or {}).get("url"),
+                    }
+                else:
+                    summary["reason"] += "（验证门禁未通过，已生成交付包但未自动提测。）"
+            except Exception as error:
+                summary["reason"] += f"（交付产出失败：{error}）"
+
+        return finish(self._bundle(conversation_id))
+
+    def _autopilot_title(self, requirement: str) -> str:
+        first_line = (requirement.splitlines() or [""])[0].strip()
+        return first_line[:72] or "AI Delivery Workbench 托管交付"
+
     def _dispatch(
         self,
         conversation_id: str,
@@ -598,12 +811,15 @@ class AgentOrchestrator:
             step.get("toolId") in {"code.apply_patch", "code.write_file"} and step.get("status") == "completed"
             for step in steps
         ) or bool(evidence.get("checkpoints"))
-        verifications = evidence.get("verificationResults") or []
+        verifications = [item for item in evidence.get("verificationResults") or [] if isinstance(item, dict)]
         if not wrote:
             return True, "尚未产生代码改动，继续推进定位与写入。"
         if not verifications:
             return True, "已写入代码但还没有验证结果，继续推进验证。"
-        return False, "已有代码改动与验证结果，推进循环结束。"
+        # 同步进来的历史报告可能是旧的失败结果；以最近一次验证为准，未通过就继续。
+        if not verifications[-1].get("ok"):
+            return True, "已写入代码但最近一次验证未通过，继续推进修复与复验。"
+        return False, "已有代码改动且最近验证通过，推进循环结束。"
 
     def _create_continuation_plan(self, conversation_id: str, source_plan: dict[str, Any]) -> dict[str, Any]:
         tools = self.tools.list()

@@ -1094,6 +1094,36 @@ export interface SandboxRuntimeSnapshot {
   updatedAt: string;
 }
 
+export interface AutopilotTraceItem {
+  action: string;
+  phase?: string | null;
+  planId?: string | null;
+  round?: number;
+  executedPlanId?: string | null;
+  executedStatus?: string | null;
+  nextPlanId?: string | null;
+  nextPlanSource?: string | null;
+}
+
+export interface AutopilotSummary {
+  finished: boolean;
+  needsHuman: boolean;
+  stage: string;
+  reason: string;
+  rounds: number;
+  trace: AutopilotTraceItem[];
+  delivery: {
+    verificationGate?: string | null;
+    changedFiles: number;
+  } | null;
+  submission: {
+    mode?: "github-pr" | "pr-ready-branch" | string;
+    branch?: string;
+    commitSha?: string;
+    prUrl?: string | null;
+  } | null;
+}
+
 export interface AgentOrchestratorBundle {
   conversation: AgentConversationState;
   turn?: AgentTurnResult;
@@ -1115,6 +1145,8 @@ export interface AgentOrchestratorBundle {
   runtimeSnapshot?: RuntimeSnapshot;
   sandboxRuntime?: SandboxRuntimeSnapshot;
   nextActions: AgentOrchestratorNextAction[];
+  /** 托管模式（/api/agent/autopilot）返回时附带的执行摘要。 */
+  autopilot?: AutopilotSummary | null;
 }
 
 export interface ManagedProcess {

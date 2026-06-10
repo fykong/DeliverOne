@@ -449,6 +449,34 @@ h1 {
   outline: none;
 }
 
+.composerToggle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.composerToggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #20231f;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.composerToggle input[type="checkbox"] {
+  accent-color: #101411;
+  cursor: pointer;
+}
+
+.composerToggle small {
+  color: #737a73;
+  font-size: 12px;
+}
+
 .composerActions {
   display: flex;
   align-items: center;

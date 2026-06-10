@@ -344,6 +344,10 @@ export function runOrchestratorAction(input: {
   return postJson<AgentOrchestratorBundle>("/api/agent/orchestrator", input);
 }
 
+export function runAutopilot(input: { conversationId: string; requirement: string; maxRounds?: number }) {
+  return postJson<AgentOrchestratorBundle>("/api/agent/autopilot", input);
+}
+
 export function cloneGitHubSandbox(input: { conversationId: string; repoUrl: string }) {
   return postJson<SandboxConnectResult>("/api/sandboxes/github", input);
 }

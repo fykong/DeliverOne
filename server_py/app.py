@@ -387,6 +387,32 @@ def agent_orchestrator(body: OrchestratorBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+class AutopilotBody(BaseModel):
+    conversationId: str
+    requirement: str
+    maxRounds: int = 12
+
+
+@app.post("/api/agent/autopilot")
+def agent_autopilot(body: AutopilotBody) -> dict[str, Any]:
+    if not body.requirement.strip():
+        raise HTTPException(status_code=400, detail="需求不能为空。")
+    repository, sandbox = _context_for(body.conversationId)
+    try:
+        return services.orchestrator.autopilot(
+            conversation_id=body.conversationId,
+            requirement=body.requirement,
+            repository=repository,
+            sandbox=sandbox,
+            max_rounds=max(1, min(body.maxRounds, 20)),
+            delivery=services.delivery,
+            submission=services.git_submission,
+            verification_runner=services.verification_runner,
+        )
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.post("/api/sandboxes/github")
 def create_github_sandbox(body: RepoGithubBody) -> dict[str, Any]:
     try:
