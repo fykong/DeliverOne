@@ -63,6 +63,8 @@ class ToolCallPlanService:
         repair_attempt: int | None = None,
         repair_sequence: int | None = None,
         repair_policy: dict[str, Any] | None = None,
+        continuation_of_plan_id: str | None = None,
+        continuation_sequence: int | None = None,
     ) -> dict[str, Any]:
         tool_map = {tool["id"]: tool for tool in tools}
         steps = self._normalize_requested_steps(requested_steps or [], tool_map)
@@ -105,6 +107,10 @@ class ToolCallPlanService:
             plan["repairSequence"] = repair_sequence
         if repair_policy:
             plan["repairPolicy"] = repair_policy
+        if continuation_of_plan_id:
+            plan["continuationOfPlanId"] = continuation_of_plan_id
+        if continuation_sequence is not None:
+            plan["continuationSequence"] = continuation_sequence
 
         self._save(plan)
         self.conversations.record_tool_call_plan(conversation_id, plan)

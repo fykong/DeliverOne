@@ -59,7 +59,10 @@ class ToolPlanDrafter:
             self.metrics.record_model_call(conversation_id, "structured_tool_plan", model, self.client.last_metrics)
             parsed = self._parse_json(raw_response)
             steps = parsed.get("steps") if isinstance(parsed.get("steps"), list) else []
-            audit = self.auditor.audit_structured_tool_plan(steps, tools)
+            steps, truncate_note = self._truncate_at_contentless_write(steps)
+            steps, command_note = self._normalize_test_commands(steps, repository)
+            notes = [note for note in (truncate_note, command_note) if note]
+            audit = self.auditor.audit_structured_tool_plan(steps, tools, notes=notes or None)
             if audit["verdict"] == "blocked":
                 return {
                     "source": "fallback",
@@ -108,7 +111,9 @@ class ToolPlanDrafter:
             self.metrics.record_model_call(conversation_id, "repair_tool_plan", model, self.client.last_metrics)
             parsed = self._parse_json(raw_response)
             steps = parsed.get("steps") if isinstance(parsed.get("steps"), list) else []
-            context_violation = self._patch_context_violation(steps, read_files)
+            steps, repair_truncate_note = self._truncate_at_contentless_write(steps)
+            steps, repair_command_note = self._normalize_test_commands(steps, repository)
+            context_violation = self._patch_context_violation(steps, read_files, sandbox)
             if context_violation:
                 return self._repair_rejected_model_plan(
                     conversation_id=conversation_id,
@@ -117,7 +122,10 @@ class ToolPlanDrafter:
                     raw_response=raw_response,
                     summary=str(parsed.get("summary") or ""),
                 )
-            audit = self.auditor.audit_structured_tool_plan(steps, tools)
+            repair_notes = [note for note in (repair_truncate_note, repair_command_note) if note]
+            audit = self.auditor.audit_structured_tool_plan(
+                steps, tools, notes=repair_notes or None, context_preloaded=bool(read_files)
+            )
             if audit["verdict"] == "blocked":
                 return {
                     "source": "repair-loop",
@@ -137,6 +145,258 @@ class ToolPlanDrafter:
             }
         except Exception as error:
             return self._repair_fallback(conversation_id, f"修复计划生成失败：{error}", tools)
+
+    def draft_continuation(
+        self,
+        conversation_id: str,
+        source_plan: dict[str, Any],
+        repository: dict[str, Any] | None,
+        sandbox: dict[str, Any] | None,
+        tools: list[dict[str, Any]],
+        memory_snapshot: dict[str, Any] | None = None,
+        matched_skills: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """上一轮计划成功完成但需求尚未落地时，基于已收集证据起草下一阶段计划。
+
+        典型链路：侦察(搜索/diff) -> 读取目标文件 -> apply_patch + 验证。
+        与修复计划共用同一条护栏：只能 patch 已读取过完整内容的文件。
+        """
+        model = self.models.get_default_model() if self.models else None
+        if not model or not model.get("enabled"):
+            return self._continuation_fallback(conversation_id, "模型不可用，使用确定性读取计划继续推进。", source_plan, tools)
+
+        try:
+            allowed_tools = self._repair_allowed_tools(tools)
+            read_files = self._collected_read_files(source_plan)
+            search_hits = self._collected_search_hits(source_plan)
+            raw_response = self.client.complete(
+                model,
+                self._continuation_messages(
+                    source_plan=source_plan,
+                    repository=repository,
+                    sandbox=sandbox,
+                    tools=allowed_tools,
+                    memory_snapshot=memory_snapshot,
+                    read_files=read_files,
+                    search_hits=search_hits,
+                    matched_skills=matched_skills or [],
+                ),
+            )
+            self.metrics.record_model_call(conversation_id, "continuation_tool_plan", model, self.client.last_metrics)
+            parsed = self._parse_json(raw_response)
+            steps = parsed.get("steps") if isinstance(parsed.get("steps"), list) else []
+            steps, truncate_note = self._truncate_at_contentless_write(steps)
+            steps, command_note = self._normalize_test_commands(steps, repository)
+            context_violation = self._patch_context_violation(steps, read_files, sandbox)
+            if context_violation:
+                fallback = self._continuation_fallback(conversation_id, context_violation, source_plan, tools)
+                fallback["rawResponse"] = raw_response
+                return fallback
+            notes = [note for note in (truncate_note, command_note) if note]
+            audit = self.auditor.audit_structured_tool_plan(
+                steps, tools, notes=notes or None, context_preloaded=bool(read_files)
+            )
+            if audit["verdict"] == "blocked":
+                fallback = self._continuation_fallback(
+                    conversation_id, "模型返回的推进计划未通过工具审计，已回退确定性读取计划。", source_plan, tools
+                )
+                fallback["rawResponse"] = raw_response
+                return fallback
+            return {
+                "source": "continuation",
+                "steps": steps,
+                "rawResponse": raw_response,
+                "audit": audit,
+                "fallbackReason": None,
+                "summary": str(parsed.get("summary") or ""),
+            }
+        except Exception as error:
+            return self._continuation_fallback(conversation_id, f"推进计划生成失败：{error}", source_plan, tools)
+
+    def _continuation_messages(
+        self,
+        source_plan: dict[str, Any],
+        repository: dict[str, Any] | None,
+        sandbox: dict[str, Any] | None,
+        tools: list[dict[str, Any]],
+        memory_snapshot: dict[str, Any] | None,
+        read_files: list[dict[str, Any]],
+        search_hits: list[dict[str, Any]],
+        matched_skills: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        executed_steps = [
+            {
+                "toolId": step.get("toolId"),
+                "title": step.get("title"),
+                "input": step.get("input"),
+                "result": self._compact_result(step.get("result")),
+            }
+            for step in source_plan.get("steps", [])
+            if isinstance(step, dict)
+        ]
+        patch_rule = (
+            "readFiles 中已有完整文件内容。本轮应直接产出 code.apply_patch（完整文件内容写入）+ verification.run，"
+            "不要再重复搜索或重复读取同一文件。code.apply_patch 的每个 relativePath 必须来自 readFiles。"
+            if read_files
+            else "当前还没有读取任何文件内容。禁止生成 code.apply_patch；本轮应优先 code.read_file 读取 searchHits 中最相关的目标文件（一次读全，不超过 5 个）。"
+        )
+        return [
+            {
+                "role": "system",
+                "content": "\n".join(
+                    [
+                        "你是本地代码 Agent 的推进计划生成器：上一轮计划已成功完成，但需求还没有真正落地为代码改动。",
+                        "你的目标是用最少的轮次完成需求：读取必要文件 -> 写入修改 -> 运行验证。",
+                        "只输出 JSON，不要输出 Markdown，不要解释。",
+                        "JSON 顶层必须是对象，包含 summary 和 steps。",
+                        "每个 step 必须包含 toolId、title、purpose、input。",
+                        "toolId 只能从 allowedTools 中选择。",
+                        patch_rule,
+                        "code.apply_patch 的 input 必须是结构化 changes：",
+                        '{"reason":"为什么这样改","changes":[{"relativePath":"文件路径","action":"write","content":"完整文件内容"}]}',
+                        "新增文件同样使用 changes（relativePath 为新路径，content 为完整内容），新增文件不要求出现在 readFiles。",
+                        "完成写入后必须安排 verification.run 步骤（input 用 {}，运行时会按仓库栈选择验证命令）。",
+                        "必须遵守 skillRuntime 中的约束与变更清单（changeChecklist），不要遗漏需求要求的测试文件。",
+                        "必须遵守 memory.taskState：用户暂停的阶段不得推进；用户覆盖的下一步动作优先。",
+                        "写入仍会等待用户确认，不要假设自动执行。",
+                    ]
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "requirement": source_plan.get("requirement"),
+                        "sourcePlan": {
+                            "id": source_plan.get("id"),
+                            "status": source_plan.get("status"),
+                            "continuationSequence": source_plan.get("continuationSequence", 0),
+                            "executedSteps": executed_steps,
+                            "evidence": source_plan.get("evidence"),
+                        },
+                        "searchHits": search_hits,
+                        "readFiles": read_files,
+                        "patchPolicy": {
+                            "canPatchNow": bool(read_files),
+                            "allowedPatchTargets": [item["relativePath"] for item in read_files],
+                            "rule": "code.apply_patch 只能修改 readFiles 中已有完整内容的文件；新增文件除外。",
+                        },
+                        "repository": repository,
+                        "sandbox": sandbox,
+                        "memory": memory_snapshot,
+                        "skillRuntime": [
+                            {
+                                "id": skill.get("id"),
+                                "name": skill.get("name"),
+                                "kind": skill.get("kind"),
+                                "constraints": (skill.get("runtime") or {}).get("constraints", []),
+                                "pattern": (skill.get("runtime") or {}).get("pattern", {}),
+                            }
+                            for skill in matched_skills
+                        ],
+                        "allowedTools": [
+                            {
+                                "id": tool.get("id"),
+                                "description": tool.get("description"),
+                                "riskLevel": tool.get("riskLevel"),
+                                "requiresCheckpoint": tool.get("requiresCheckpoint"),
+                                "inputSchema": tool.get("inputSchema"),
+                            }
+                            for tool in tools
+                        ],
+                        "expectedJson": {
+                            "summary": "说明本轮推进什么。",
+                            "steps": [
+                                {
+                                    "toolId": "code.read_file",
+                                    "title": "读取目标文件",
+                                    "purpose": "获得完整内容后下一轮直接写入。",
+                                    "input": {"relativePath": "frontend/src/routes/Article/Article.jsx", "maxBytes": 40000},
+                                }
+                            ],
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            },
+        ]
+
+    def _truncate_at_contentless_write(self, steps: list[Any]) -> tuple[list[dict[str, Any]], str | None]:
+        """截断没有实际内容的写入步骤及其后续。
+
+        模型常在还没读到文件内容时就排入空的 write/patch 步骤；直接执行会写出
+        空文件。截断后由推进循环基于真实读取结果起草带内容的下一轮写入计划。
+        """
+        kept: list[dict[str, Any]] = []
+        for step in steps if isinstance(steps, list) else []:
+            if not isinstance(step, dict):
+                continue
+            tool_id = str(step.get("toolId") or "")
+            payload = step.get("input") if isinstance(step.get("input"), dict) else {}
+            if tool_id == "code.write_file" and not str(payload.get("content") or "").strip():
+                return kept, (
+                    f"步骤「{step.get('title')}」的 code.write_file 没有文件内容，已截断该步骤及其后续；"
+                    "本轮先完成读取，下一轮会基于真实文件内容生成写入计划。"
+                )
+            if tool_id == "code.apply_patch":
+                changes = payload.get("changes") or payload.get("files")
+                has_content = isinstance(changes, list) and any(
+                    isinstance(change, dict) and str(change.get("content") or "").strip() for change in changes
+                )
+                if not has_content:
+                    return kept, (
+                        f"步骤「{step.get('title')}」的 code.apply_patch 没有实际变更内容，已截断该步骤及其后续；"
+                        "本轮先完成读取，下一轮会基于真实文件内容生成写入计划。"
+                    )
+            kept.append(step)
+        return kept, None
+
+    def _collected_search_hits(self, source_plan: dict[str, Any]) -> list[dict[str, Any]]:
+        hits: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for step in source_plan.get("steps", []):
+            if not isinstance(step, dict) or step.get("toolId") != "code.search_files":
+                continue
+            result = step.get("result") if isinstance(step.get("result"), dict) else {}
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            for match in data.get("matches", []) if isinstance(data.get("matches"), list) else []:
+                path = str((match or {}).get("path") or "").strip()
+                if path and path not in seen:
+                    hits.append({"path": path, "reason": str((match or {}).get("reason") or "")[:120]})
+                    seen.add(path)
+                if len(hits) >= 20:
+                    return hits
+        return hits
+
+    def _continuation_fallback(
+        self,
+        conversation_id: str,
+        reason: str,
+        source_plan: dict[str, Any],
+        tools: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        # 确定性兜底：读取侦察阶段命中的候选文件，保证链路不停摆。
+        steps: list[dict[str, Any]] = []
+        for hit in self._collected_search_hits(source_plan)[:4]:
+            steps.append(
+                {
+                    "toolId": "code.read_file",
+                    "title": f"读取候选文件 {hit['path']}",
+                    "purpose": "获得完整文件内容，下一轮才允许生成 patch。",
+                    "input": {"relativePath": hit["path"], "maxBytes": 40000},
+                }
+            )
+        audit = self.auditor.audit_structured_tool_plan(steps, tools, fallback_reason=reason)
+        return {
+            "source": "continuation",
+            "steps": steps,
+            "rawResponse": "",
+            "audit": audit,
+            "fallbackReason": reason,
+            "conversationId": conversation_id,
+            "summary": "模型推进计划不可用，先读取候选文件收集上下文。",
+        }
 
     def rewrite(
         self,
@@ -200,7 +460,7 @@ class ToolPlanDrafter:
                 "toolId": "code.search_files",
                 "title": "定位相关文件",
                 "purpose": "找到和需求相关的候选文件",
-                "input": {"query": requirement, "maxResults": 12},
+                "input": {"query": "提炼后的 2-5 个关键词", "maxResults": 12},
             }
         ]
         if any(tool.get("id") == "browser.preview_smoke" for tool in tools):
@@ -230,6 +490,9 @@ class ToolPlanDrafter:
                         "计划必须先读上下文、定位文件、检查 diff，再考虑验证命令。",
                         "除非已经有足够文件内容，否则不要生成 code.write_file 或 code.apply_patch。",
                         "命令只能用于沙盒仓库，优先选择 package.json 中已有脚本。",
+                        "验证优先使用 verification.run（input 用 {}，运行时会按仓库栈选择验证命令并产出结构化报告）。",
+                        "如果直接用 command.run 跑 vitest 测试，必须使用 `npm test -- --run`，避免 watch 模式挂起。",
+                        "code.search_files 的 query 必须是 2-5 个提炼后的关键词，不能把整段需求文本当 query。",
                         "如果仓库来自 GitHub，可以使用 github.inspect_repository 确认 remote、branch 和 HEAD。",
                         "必须遵守 memory.taskState：用户暂停的阶段不得生成推进该阶段的写入/命令步骤；用户覆盖的下一步动作优先。",
                         "只有当预览端口已启动或用户要求浏览器验证时，才使用 browser.preview_smoke。",
@@ -304,6 +567,9 @@ class ToolPlanDrafter:
         ]
         patch_rule = (
             "当前已经有 readFiles 内容。只有当 code.apply_patch 的每个 relativePath 都来自 readFiles 时，才允许生成 patch。"
+            "如果 readFiles 已经包含失败的测试文件或被测源码，本轮必须直接产出 code.apply_patch 修复 + 复跑验证，"
+            "不允许再生成纯读取计划——重复读取会耗尽修复次数。"
+            "判断修复方向时以需求原文为准：实现符合需求而测试断言错误时改测试，反之改实现。"
             if read_files
             else "当前没有任何已读取文件内容。禁止生成 code.apply_patch；必须先生成 code.search_files / code.read_file / command.run 收集证据。"
         )
@@ -563,13 +829,16 @@ class ToolPlanDrafter:
                 break
         return files
 
-    def _patch_context_violation(self, steps: list[dict[str, Any]], read_files: list[dict[str, Any]]) -> str | None:
+    def _patch_context_violation(
+        self,
+        steps: list[dict[str, Any]],
+        read_files: list[dict[str, Any]],
+        sandbox: dict[str, Any] | None = None,
+    ) -> str | None:
         patch_steps = [step for step in steps if isinstance(step, dict) and step.get("toolId") == "code.apply_patch"]
         if not patch_steps:
             return None
         allowed_targets = {str(item.get("relativePath") or "").replace("\\", "/") for item in read_files}
-        if not allowed_targets:
-            return "模型在没有已读取文件内容时生成了 code.apply_patch，系统已回退为证据收集计划。"
         for step in patch_steps:
             input_payload = step.get("input") if isinstance(step.get("input"), dict) else {}
             changes = input_payload.get("changes") or input_payload.get("files")
@@ -579,9 +848,50 @@ class ToolPlanDrafter:
                 if not isinstance(change, dict):
                     return "模型生成的 code.apply_patch changes 格式错误，系统已回退为证据收集计划。"
                 relative_path = str(change.get("relativePath") or "").replace("\\", "/")
-                if relative_path not in allowed_targets:
-                    return f"模型尝试 patch 未读取过的文件：{relative_path}，系统已回退为证据收集计划。"
+                if relative_path in allowed_targets:
+                    continue
+                if self._is_new_file(relative_path, sandbox):
+                    # 沙盒中不存在的文件视为新建，不要求先读取。
+                    continue
+                return f"模型尝试 patch 未读取过的既有文件：{relative_path}，系统已回退为证据收集计划。"
         return None
+
+    def _is_new_file(self, relative_path: str, sandbox: dict[str, Any] | None) -> bool:
+        repo_path = (sandbox or {}).get("repoPath")
+        if not repo_path or not relative_path:
+            return False
+        try:
+            from pathlib import Path
+
+            root = Path(str(repo_path)).resolve()
+            target = (root / relative_path).resolve()
+            if root != target and root not in target.parents:
+                return False
+            return not target.exists()
+        except OSError:
+            return False
+
+    def _normalize_test_commands(
+        self,
+        steps: list[dict[str, Any]],
+        repository: dict[str, Any] | None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """裸 `npm test` 在 vitest 仓库会进入 watch 模式挂死，统一补 `-- --run`。"""
+        scripts = (repository or {}).get("scripts") if isinstance((repository or {}).get("scripts"), dict) else {}
+        test_script = str(scripts.get("test") or "").lower()
+        if "vitest" not in test_script or "--run" in test_script:
+            return steps, None
+        note = None
+        for step in steps:
+            if not isinstance(step, dict) or step.get("toolId") != "command.run":
+                continue
+            payload = step.get("input") if isinstance(step.get("input"), dict) else {}
+            command = str(payload.get("command") or "").strip()
+            if command in {"npm test", "npm run test"}:
+                payload["command"] = f"{command} -- --run"
+                step["input"] = payload
+                note = "已把裸 `npm test` 规范化为 `npm test -- --run`，避免 vitest watch 模式挂起。"
+        return steps, note
 
     def _compact_result(self, result: Any) -> dict[str, Any] | None:
         if not isinstance(result, dict):

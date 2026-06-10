@@ -53,7 +53,7 @@ class StackDetector:
         for phase, script_name, command, reason, confidence in [
             ("typecheck", "typecheck", "npm run typecheck", "发现 typecheck 脚本，优先验证类型边界。", 0.95),
             ("lint", "lint", "npm run lint", "发现 lint 脚本，用于检查代码风格和静态错误。", 0.88),
-            ("tests", "test", "npm test", "发现 test 脚本，用于验证行为是否回归。", 0.84),
+            ("tests", "test", self._test_command(scripts), "发现 test 脚本，用于验证行为是否回归。", 0.84),
             ("build", "build", "npm run build", "发现 build 脚本，用于确认前端或全栈产物可构建。", 0.8),
         ]:
             if script_name in scripts:
@@ -77,6 +77,13 @@ class StackDetector:
                 self._recommendation("verification", "lint", "ruff check .", "pyproject.toml", "发现 Python 项目，推荐运行 ruff 做静态检查。", 0.65)
             )
         return recommendations
+
+    def _test_command(self, scripts: dict[str, Any]) -> str:
+        # vitest 默认进入 watch 模式,在非交互沙盒里会挂死直到超时;强制单次运行。
+        script = str(scripts.get("test") or "").lower()
+        if "vitest" in script and "--run" not in script and "vitest run" not in script:
+            return "npm test -- --run"
+        return "npm test"
 
     def _preview_recommendations(self, scripts: dict[str, Any], dependencies: set[str]) -> list[dict[str, Any]]:
         if not isinstance(scripts, dict):

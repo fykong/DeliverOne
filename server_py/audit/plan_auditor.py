@@ -84,9 +84,21 @@ class PlanAuditor:
         steps: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         fallback_reason: str | None = None,
+        notes: list[str] | None = None,
+        context_preloaded: bool = False,
     ) -> dict[str, Any]:
         findings: list[dict[str, Any]] = []
         tool_map = {tool.get("id"): tool for tool in tools}
+
+        for note in notes or []:
+            findings.append(
+                {
+                    "id": "plan-normalized",
+                    "title": "计划已被系统规范化",
+                    "detail": note,
+                    "severity": "warning",
+                }
+            )
 
         if fallback_reason:
             findings.append(
@@ -108,8 +120,10 @@ class PlanAuditor:
                 }
             )
 
-        has_read_context = False
-        has_read_file_context = False
+        # 推进/修复计划的读取可能发生在上一轮计划中（readFiles 已注入起草上下文），
+        # 此时本计划允许直接以写入开始。
+        has_read_context = context_preloaded
+        has_read_file_context = context_preloaded
         for index, step in enumerate(steps, start=1):
             if not isinstance(step, dict):
                 findings.append(
@@ -183,7 +197,7 @@ class PlanAuditor:
                     }
                 )
 
-            if tool.get("riskLevel") == "command":
+            if tool.get("riskLevel") == "command" and not tool.get("managedCommand"):
                 command = str(input_payload.get("command", "")).strip()
                 if not command:
                     findings.append(

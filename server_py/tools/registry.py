@@ -31,6 +31,7 @@ class ToolRegistry:
                 "description": tool.description,
                 "riskLevel": tool.risk_level,
                 "requiresCheckpoint": tool.requires_checkpoint,
+                "managedCommand": tool.managed_command,
                 "inputSchema": tool.input_schema or {},
             }
             for tool in self._tools.values()

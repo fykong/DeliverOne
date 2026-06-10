@@ -120,6 +120,7 @@ class Services:
             sandbox_runtime=self.sandbox_runtime,
             diff=self.diff,
             task_state_machine=self.task_state_machine,
+            skills=self.skill_runtime,
         )
 
 

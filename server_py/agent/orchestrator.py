@@ -16,6 +16,7 @@ from server_py.runtime.task_state_machine import TaskStateMachineService
 from server_py.sandbox.checkpoint_manager import CheckpointManager
 from server_py.sandbox.diff_service import SandboxDiffService
 from server_py.sandbox.file_browser import SandboxFileBrowser
+from server_py.skills.runtime import SkillRuntime
 from server_py.tools.types import ToolRunner
 
 
@@ -43,6 +44,7 @@ class AgentOrchestrator:
         sandbox_runtime: SandboxRuntimeService,
         diff: SandboxDiffService,
         task_state_machine: TaskStateMachineService,
+        skills: SkillRuntime | None = None,
     ) -> None:
         self.workflow = workflow
         self.conversations = conversations
@@ -59,6 +61,7 @@ class AgentOrchestrator:
         self.sandbox_runtime = sandbox_runtime
         self.diff = diff
         self.task_state_machine = task_state_machine
+        self.skills = skills
 
     def run(
         self,
@@ -273,7 +276,20 @@ class AgentOrchestrator:
                     "repair_plan": repair_plan,
                     "repair_loop": repair_loop,
                 }
-            return {"tool_plan": plan, "executed_tool_plan": plan, "repair_loop": repair_loop}
+            continuation_plan, continuation_loop = self._maybe_create_continuation_plan(conversation_id, plan)
+            if continuation_plan:
+                return {
+                    "tool_plan": continuation_plan,
+                    "executed_tool_plan": plan,
+                    "repair_loop": repair_loop,
+                    "continuation_loop": continuation_loop,
+                }
+            return {
+                "tool_plan": plan,
+                "executed_tool_plan": plan,
+                "repair_loop": repair_loop,
+                "continuation_loop": continuation_loop,
+            }
 
         if action == "repair_failed_plan":
             source_plan = self.tool_call_plans.get_plan(conversation_id)
@@ -281,6 +297,16 @@ class AgentOrchestrator:
                 raise RuntimeError("当前对话没有可修复的工具计划。")
             plan = self._create_repair_plan(conversation_id, source_plan, trigger="manual")
             return {"tool_plan": plan}
+
+        if action == "continue_plan":
+            source_plan = self.tool_call_plans.get_plan(conversation_id)
+            if not source_plan:
+                raise RuntimeError("当前对话没有可推进的工具计划。")
+            should, reason = self._should_create_continuation_plan(source_plan)
+            if not should:
+                raise RuntimeError(f"当前不需要推进计划：{reason}")
+            plan = self._create_continuation_plan(conversation_id, source_plan)
+            return {"tool_plan": plan, "continuation_loop": {"created": True, "sourcePlanId": source_plan.get("id"), "continuationPlanId": plan.get("id"), "trigger": "manual"}}
 
         raise RuntimeError(f"未知编排动作：{action}")
 
@@ -292,6 +318,7 @@ class AgentOrchestrator:
         executed_tool_plan: dict[str, Any] | None = None,
         repair_plan: dict[str, Any] | None = None,
         repair_loop: dict[str, Any] | None = None,
+        continuation_loop: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         state = self.conversations.get(conversation_id)
         current_plan = tool_plan if tool_plan is not None else self.tool_call_plans.get_plan(conversation_id)
@@ -325,6 +352,7 @@ class AgentOrchestrator:
             "executedToolPlan": executed_tool_plan,
             "repairPlan": repair_plan,
             "repairLoop": repair_loop,
+            "continuationLoop": continuation_loop,
             "checkpoints": checkpoints,
             "events": events,
             "processes": processes,
@@ -360,6 +388,8 @@ class AgentOrchestrator:
             actions.append({"id": "execute_tool_plan", "label": "执行工具计划", "kind": "write"})
         if plan and plan.get("status") in {"failed", "waiting_approval"}:
             actions.append({"id": "repair_failed_plan", "label": "生成修复计划", "kind": "write"})
+        if plan and plan.get("status") == "completed" and self._should_create_continuation_plan(plan)[0]:
+            actions.append({"id": "continue_plan", "label": "继续推进需求", "kind": "write"})
         if state.get("sandbox"):
             actions.append({"id": "start_preview", "label": "启动沙盒预览", "kind": "command"})
         return actions
@@ -373,7 +403,7 @@ class AgentOrchestrator:
         control = self._task_control_summary(ledger)
         paused_stage_ids = control.get("pausedStageIds", [])
         manual_action_ids = control.get("manualNextActionIds", [])
-        controlled_actions = {"approve_plan", "approve_tool_plan", "execute_tool_plan", "repair_failed_plan"}
+        controlled_actions = {"approve_plan", "approve_tool_plan", "execute_tool_plan", "repair_failed_plan", "continue_plan"}
         if paused_stage_ids and action in controlled_actions:
             stage_titles = self._stage_titles(ledger, paused_stage_ids)
             reason = f"任务状态机阶段已暂停：{', '.join(stage_titles)}。请先在右侧恢复阶段后继续。"
@@ -529,6 +559,125 @@ class AgentOrchestrator:
         if policy.get("countsTowardCodeRepairLimit") and repair_attempt >= max_code:
             return False
         return True
+
+    def _maybe_create_continuation_plan(
+        self, conversation_id: str, source_plan: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        should, reason = self._should_create_continuation_plan(source_plan)
+        if not should:
+            return None, {"created": False, "reason": reason, "sourcePlanId": source_plan.get("id")}
+        try:
+            plan = self._create_continuation_plan(conversation_id, source_plan)
+            return plan, {
+                "created": True,
+                "sourcePlanId": source_plan.get("id"),
+                "continuationPlanId": plan.get("id"),
+                "continuationSequence": plan.get("continuationSequence"),
+                "reason": "上一轮计划已完成但需求尚未落地，已基于执行证据生成下一阶段待确认计划。",
+            }
+        except Exception as error:
+            self.events.append(
+                conversation_id,
+                "continuation_loop.auto_create.failed",
+                {"sourcePlanId": source_plan.get("id"), "error": str(error)},
+                actor="agent",
+            )
+            return None, {"created": False, "sourcePlanId": source_plan.get("id"), "reason": str(error)}
+
+    def _should_create_continuation_plan(self, plan: dict[str, Any]) -> tuple[bool, str]:
+        if plan.get("status") != "completed":
+            return False, "计划未完成，不进入推进循环。"
+        steps = [step for step in plan.get("steps", []) if isinstance(step, dict)]
+        if any(step.get("status") == "failed" for step in steps):
+            return False, "存在失败步骤，由修复循环处理。"
+        sequence = int(plan.get("continuationSequence") or 0)
+        if sequence >= 4:
+            return False, "推进轮次已达上限(4)，需要人工接管或重新提需求。"
+        evidence = plan.get("evidence") if isinstance(plan.get("evidence"), dict) else {}
+        wrote = any(
+            step.get("toolId") in {"code.apply_patch", "code.write_file"} and step.get("status") == "completed"
+            for step in steps
+        ) or bool(evidence.get("checkpoints"))
+        verifications = evidence.get("verificationResults") or []
+        if not wrote:
+            return True, "尚未产生代码改动，继续推进定位与写入。"
+        if not verifications:
+            return True, "已写入代码但还没有验证结果，继续推进验证。"
+        return False, "已有代码改动与验证结果，推进循环结束。"
+
+    def _create_continuation_plan(self, conversation_id: str, source_plan: dict[str, Any]) -> dict[str, Any]:
+        tools = self.tools.list()
+        state = self.conversations.get(conversation_id)
+        repository = state.get("repository") or source_plan.get("repository")
+        sandbox = state.get("sandbox") or source_plan.get("sandbox")
+        memory_snapshot = self.memory.snapshot(
+            conversation_id,
+            repository=repository,
+            requirement=source_plan.get("requirement"),
+            sandbox=sandbox,
+        )
+        matched_skills: list[dict[str, Any]] = []
+        if self.skills:
+            try:
+                matched_skills = self.skills.peek(str(source_plan.get("requirement") or ""), repository)
+            except Exception:
+                matched_skills = []
+        draft = self.tool_plan_drafter.draft_continuation(
+            conversation_id=conversation_id,
+            source_plan=source_plan,
+            repository=repository,
+            sandbox=sandbox,
+            tools=tools,
+            memory_snapshot=memory_snapshot,
+            matched_skills=matched_skills,
+        )
+        if not draft.get("steps"):
+            raise RuntimeError(str(draft.get("fallbackReason") or "推进计划没有可执行步骤。"))
+        plan = self.tool_call_plans.create_plan(
+            conversation_id=conversation_id,
+            requirement=str(source_plan.get("requirement") or ""),
+            repository=repository,
+            sandbox=sandbox,
+            tools=tools,
+            requested_steps=draft.get("steps"),
+            generation={
+                "source": "continuation",
+                "rawResponse": draft.get("rawResponse"),
+                "fallbackReason": draft.get("fallbackReason"),
+                "summary": draft.get("summary"),
+            },
+            audits=[draft["audit"]] if draft.get("audit") else [],
+            continuation_of_plan_id=str(source_plan.get("id") or ""),
+            continuation_sequence=int(source_plan.get("continuationSequence") or 0) + 1,
+        )
+        review = self.roles.review_tool_plan(plan, conversation_id, memory_snapshot=memory_snapshot)
+        plan = self.tool_call_plans.append_audit(conversation_id, review, plan["id"])
+        self.events.append(
+            conversation_id,
+            "agent.role.reviewer",
+            {
+                "verdict": review["verdict"],
+                "summary": review.get("summary"),
+                "recommendation": review.get("recommendation"),
+                "findings": review["findings"],
+                "planId": plan["id"],
+                "continuationOfPlanId": source_plan.get("id"),
+                "continuationSequence": plan.get("continuationSequence"),
+            },
+            actor="agent",
+        )
+        self.events.append(
+            conversation_id,
+            "continuation_loop.plan.ready_for_confirmation",
+            {
+                "sourcePlanId": source_plan.get("id"),
+                "continuationPlanId": plan.get("id"),
+                "continuationSequence": plan.get("continuationSequence"),
+                "summary": draft.get("summary"),
+            },
+            actor="agent",
+        )
+        return plan
 
     def _repair_stop_reason(self, plan: dict[str, Any]) -> str:
         has_failed_step = any(step.get("status") == "failed" for step in plan.get("steps", []) if isinstance(step, dict))

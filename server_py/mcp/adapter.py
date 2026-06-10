@@ -510,6 +510,7 @@ class MCPAdapter:
             "description": tool.get("description"),
             "riskLevel": tool.get("riskLevel"),
             "requiresCheckpoint": tool.get("requiresCheckpoint"),
+            "managedCommand": bool(tool.get("managedCommand")),
             "inputSchema": tool.get("inputSchema", {}),
             "schemaSummary": self._schema_summary(tool.get("inputSchema", {})),
             "approvalAware": tool.get("riskLevel") in {"command", "external", "dangerous"},
