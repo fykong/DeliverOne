@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Recurse -Depth 3 -Directory -Exclude node_modules | Where-Object { $_.FullName -notmatch 'node_modules|\\\\.codex-upstream|dist|__pycache__|\\\\.git\\\\b' } | ForEach-Object { $_.FullName.Replace\\('C:\\\\Users\\\\kongfy\\\\Desktop\\\\AI-Delivery-Workbench-V2\\\\',''\\) })"
+    ]
+  }
+}

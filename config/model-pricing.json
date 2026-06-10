@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "currency": "USD",
+  "models": {
+    "doubao-seed-2-lite": {
+      "inputPer1M": 0,
+      "outputPer1M": 0,
+      "note": "价格未配置时成本显示为 0，仍记录 token 和耗时。"
+    }
+  }
+}

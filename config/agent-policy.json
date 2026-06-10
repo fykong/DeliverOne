@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "approvalMode": "untrusted",
+  "sandboxMode": "workspace_write",
+  "defaultExecutionMode": "plan",
+  "trustedCommandPrefixes": [
+    "git status",
+    "git diff",
+    "git log",
+    "git branch",
+    "git show",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run test",
+    "npm test",
+    "npm run build",
+    "pwd",
+    "ls",
+    "dir",
+    "rg",
+    "cat",
+    "type"
+  ],
+  "dangerousCommandPatterns": [
+    "\\brm\\s+-rf\\b",
+    "\\brmdir\\s+/s\\b",
+    "\\bdel\\s+/[sq]\\b",
+    "\\bRemove-Item\\b.*\\b-Recurse\\b",
+    "\\bgit\\s+reset\\s+--hard\\b",
+    "\\bgit\\s+clean\\s+-fd\\b",
+    "\\bshutdown\\b",
+    "\\bformat\\b"
+  ],
+  "rules": [
+    {
+      "id": "sandbox-required",
+      "severity": "block",
+      "description": "任何读写、命令、预览、验证动作都必须绑定当前对话沙盒。"
+    },
+    {
+      "id": "workspace-only",
+      "severity": "block",
+      "description": "Agent 只能操作本项目 workspace/conversations 下的沙盒仓库。"
+    },
+    {
+      "id": "write-needs-checkpoint",
+      "severity": "block",
+      "description": "任何写入工具必须声明 requiresCheckpoint，并且写入前必须创建 checkpoint。"
+    },
+    {
+      "id": "untrusted-command-needs-approval",
+      "severity": "approval",
+      "description": "非可信命令默认需要用户确认。"
+    },
+    {
+      "id": "dangerous-command-needs-dedicated-approval",
+      "severity": "approval",
+      "description": "高风险命令不能通过普通命令工具绕过，必须进入专门授权或回退接口。"
+    },
+    {
+      "id": "original-repo-protected",
+      "severity": "block",
+      "description": "原始仓库默认只读，除非用户明确授权同步或应用补丁。"
+    }
+  ]
+}

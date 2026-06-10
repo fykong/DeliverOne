@@ -1,0 +1,15 @@
+{
+  "defaultModelId": "doubao-seed-2-lite",
+  "models": [
+    {
+      "id": "doubao-seed-2-lite",
+      "displayName": "Doubao Seed 2.0 Lite",
+      "provider": "ark",
+      "endpoint": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+      "model": "EP_ID_REDACTED",
+      "apiKeyEnv": "ARK_API_KEY",
+      "modelEnv": "ARK_MODEL",
+      "maxContextTokens": 128000
+    }
+  ]
+}
