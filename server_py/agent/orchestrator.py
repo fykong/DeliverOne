@@ -391,6 +391,47 @@ class AgentOrchestrator:
         except Exception as error:
             return {"status": "error", "reason": f"页面级终检执行失败：{error}"}
 
+    def _try_autostart_preview(self, conversation_id: str, plan: dict[str, Any]) -> dict[str, Any] | None:
+        """写入后预览没在跑时自动启动(依赖已装好才启动,否则等不起)。"""
+        import socket
+        import time as _time
+        from pathlib import Path as _Path
+
+        sandbox = plan.get("sandbox") or self.conversations.get(conversation_id).get("sandbox")
+        if not isinstance(sandbox, dict) or not sandbox.get("repoPath"):
+            return None
+        repo_root = _Path(str(sandbox["repoPath"]))
+        if not (repo_root / "node_modules").exists():
+            return None  # 首次安装要几分钟,不在验证环节里等
+        try:
+            from server_py.verification.stack_detector import StackDetector
+
+            primary = (StackDetector().recommend_for_path(str(repo_root)).get("preview") or {}).get("primary") or {}
+            command = str(primary.get("command") or "").strip()
+            ports = [int(p) for p in (primary.get("ports") or [4500])]
+            if not command:
+                return None
+            process = self.processes.start(
+                conversation_id=conversation_id,
+                sandbox_id=str(sandbox.get("id") or ""),
+                command=command,
+                cwd=str(repo_root),
+                ports=ports,
+            )
+            self.events.append(
+                conversation_id, "verification.visual.autostart", {"command": command, "ports": ports}, actor="runtime"
+            )
+            deadline = _time.time() + 60
+            while _time.time() < deadline:
+                try:
+                    with socket.create_connection(("127.0.0.1", ports[0]), timeout=2):
+                        return {"ports": ports, "id": process.get("id"), "status": "running"}
+                except OSError:
+                    _time.sleep(2)
+            return None
+        except Exception:
+            return None
+
     def _auto_visual_check_after_writes(self, conversation_id: str, plan: dict[str, Any]) -> bool:
         """计划写入过代码且预览在运行时,自动做页面级确认(截图+DOM+需求断言)。"""
         if not self.preview_smoke:
@@ -417,13 +458,19 @@ class AgentOrchestrator:
             and process.get("ports")
         ]
         if not running:
-            self.events.append(
-                conversation_id,
-                "verification.visual.skipped",
-                {"reason": "没有运行中的沙盒预览进程;启动预览后,每次代码写入会自动做页面级确认。"},
-                actor="runtime",
-            )
-            return False
+            # 豆包终判必须"看到真实页面":预览没在跑就自动拉起来,
+            # 而不是跳过视觉检查(阅读量任务实测:跳过=半成品被放行)。
+            started = self._try_autostart_preview(conversation_id, plan)
+            if started:
+                running = [started]
+            else:
+                self.events.append(
+                    conversation_id,
+                    "verification.visual.skipped",
+                    {"reason": "沙盒预览未运行且自动启动失败(通常是依赖未安装);手动启动预览后,每次代码写入会自动做页面级确认。"},
+                    actor="runtime",
+                )
+                return False
         try:
             from server_py.agent.preview_assertions import build_preview_assertions
 
