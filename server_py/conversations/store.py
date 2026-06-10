@@ -184,6 +184,13 @@ class ConversationStore:
         state.pop("pendingConfirmation", None)
         return self.save(state)
 
+    def record_milestone(self, conversation_id: str, content: str) -> dict[str, Any]:
+        """持久化里程碑消息(预览启动/交付/回退/修复计划等):
+        刷新或切换对话后聊天区从 state.messages 重建,只在前端 push 的消息会消失。"""
+        state = self.get(conversation_id)
+        state.setdefault("messages", []).append(self._message("agent", content))
+        return self.save(state)
+
     def record_audit(self, conversation_id: str, audit: dict[str, Any]) -> dict[str, Any]:
         state = self.get(conversation_id)
         state.setdefault("audits", []).append(audit)
@@ -198,11 +205,12 @@ class ConversationStore:
     def _summary(self, state: dict[str, Any]) -> dict[str, Any]:
         messages = state.get("messages") if isinstance(state.get("messages"), list) else []
         repository = state.get("repository") if isinstance(state.get("repository"), dict) else None
-        # 标题固化为首条用户消息(原始需求),而非最后一条——否则回答澄清后
-        # 标题会变成"1选A"之类的短回答,在列表里完全认不出。
+        # 标题优先用开发需求(lastRequirement,澄清合并后仍以原始需求开头),
+        # 而不是首条用户消息——首条可能是"你是谁"这类提问,会霸占标题;
+        # 也不是最后一条——澄清回答"1选A"之类短回复在列表里完全认不出。
         first_user_message = next((item for item in messages if item.get("role") == "user"), None)
-        title = ""
-        if isinstance(first_user_message, dict):
+        title = str(state.get("lastRequirement") or "").strip()
+        if not title and isinstance(first_user_message, dict):
             title = str(first_user_message.get("content", "")).strip()
         if not title and repository:
             title = str(repository.get("source", "")).split("\\")[-1].split("/")[-1]

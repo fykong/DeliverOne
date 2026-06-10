@@ -292,6 +292,7 @@ class AgentRoleSuite:
                         "字段：verdict=pass|warning|blocked，summary，findings，recommendation，questions。",
                         "Clarifier 还要输出 inputIntent（development|question|chitchat）、requirementDsl（对象）、ambiguities（数组）、antiPatternFindings（数组）。",
                         "Verifier 失败时还要输出 failureClass、repairScope、repairPolicy。",
+                        "Verifier 必须输出 requirementCompleted（布尔）：用户的核心需求本身是否已经真正落地。环境修复、依赖安装、测试通过都不等于需求完成；只有需求要求的代码改动确实存在并验证有效才算 true。",
                         "findings 是数组，每项包含 id、title、detail、severity=info|warning|error。",
                         "repairPolicy 包含 failureClass、severity、autoAllowed、countsTowardCodeRepairLimit、requiresUserConfirmation、maxCodeRepairAttempts、maxTotalRepairSteps、reason。",
                         "blocked 表示不能进入下一阶段；warning 表示可继续但必须提示风险；pass 表示可继续。",
@@ -340,6 +341,7 @@ class AgentRoleSuite:
                             "antiPatternFindings": [
                                 {"type": "contradiction", "detail": "矛盾点描述", "suggestion": "给用户的可选路径"}
                             ],
+                            "requirementCompleted": False,
                             "failureClass": "code",
                             "repairScope": "test-failure",
                             "repairPolicy": {
@@ -404,6 +406,10 @@ class AgentRoleSuite:
         intent = str(parsed.get("inputIntent") or "").strip().lower()
         if intent in {"development", "question", "chitchat"}:
             clarifier_extras["inputIntent"] = intent
+        # Verifier 对"需求本身是否真正落地"的判断,推进循环据此决定是否继续,
+        # 而不是机械的"有 diff + 验证绿"——环境修复的 diff 会骗过机械判定。
+        if isinstance(parsed.get("requirementCompleted"), bool):
+            clarifier_extras["requirementCompleted"] = parsed["requirementCompleted"]
         return {
             **clarifier_extras,
             "id": f"role_{source.lower()}_{now_iso()}",

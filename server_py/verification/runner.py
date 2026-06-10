@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -8,6 +7,7 @@ from uuid import uuid4
 
 from server_py.core.json_io import now_iso, write_json
 from server_py.core.paths import conversation_root
+from server_py.core.proc import run_sandbox_command
 from server_py.runtime.events import EventStore
 from server_py.verification.stack_detector import StackDetector
 
@@ -79,27 +79,11 @@ class VerificationRunner:
             {"reportId": report_id, "phase": phase, "command": command},
             actor="runtime",
         )
-        try:
-            result = subprocess.run(
-                command,
-                cwd=repo,
-                shell=True,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-            )
-            exit_code = result.returncode
-            stdout = result.stdout[-12000:]
-            stderr = result.stderr[-12000:]
-            timed_out = False
-        except subprocess.TimeoutExpired as error:
-            exit_code = None
-            stdout = (error.stdout or "")[-12000:] if isinstance(error.stdout, str) else ""
-            stderr = (error.stderr or "")[-12000:] if isinstance(error.stderr, str) else ""
-            timed_out = True
+        result = run_sandbox_command(command, str(repo), timeout)
+        exit_code = result["exitCode"]
+        stdout = result["stdout"][-12000:]
+        stderr = result["stderr"][-12000:]
+        timed_out = bool(result["timedOut"])
 
         duration_ms = int((time.perf_counter() - started) * 1000)
         ok = exit_code == 0 and not timed_out

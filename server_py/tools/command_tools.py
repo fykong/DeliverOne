@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any
 
+from server_py.core.proc import run_sandbox_command
 from server_py.tools.types import AgentTool, ToolContext
 
 
@@ -17,29 +17,26 @@ def _run_command(payload: Any, context: ToolContext) -> dict[str, Any]:
 
     timeout = min(int(record.get("timeoutSeconds", 60) or 60), 600)
     cwd = Path(context.repo_path).resolve()
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-        shell=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-        check=False,
-    )
-    ok = result.returncode == 0
+    result = run_sandbox_command(command, str(cwd), timeout)
+    ok = result["exitCode"] == 0 and not result["timedOut"]
+    if result["timedOut"]:
+        summary = f"命令超时（{timeout}s），已终止整棵进程树。watch/交互类命令请改为单次运行（如 vitest run）。"
+    elif ok:
+        summary = f"命令执行完成，退出码 {result['exitCode']}。"
+    else:
+        summary = f"命令执行失败，退出码 {result['exitCode']}。"
     return {
         "ok": ok,
-        "summary": f"命令执行完成，退出码 {result.returncode}。" if ok else f"命令执行失败，退出码 {result.returncode}。",
+        "summary": summary,
         "data": {
             "command": command,
             "cwd": str(cwd),
-            "exitCode": result.returncode,
-            "stdout": result.stdout[-12000:],
-            "stderr": result.stderr[-12000:],
-            "stdoutTail": result.stdout[-4000:],
-            "stderrTail": result.stderr[-4000:],
+            "exitCode": result["exitCode"],
+            "timedOut": result["timedOut"],
+            "stdout": result["stdout"][-12000:],
+            "stderr": result["stderr"][-12000:],
+            "stdoutTail": result["stdout"][-4000:],
+            "stderrTail": result["stderr"][-4000:],
         },
     }
 

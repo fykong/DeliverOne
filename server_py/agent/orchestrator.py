@@ -141,6 +141,9 @@ class AgentOrchestrator:
             {"requirement": requirement[:400], "maxRounds": max_rounds},
             actor="autopilot",
         )
+        self.conversations.record_milestone(
+            conversation_id, "托管模式已开启：自动确认方案与工具计划，直达提测；澄清问题与高危操作仍会停下。"
+        )
 
         def finish(bundle: dict[str, Any]) -> dict[str, Any]:
             self.events.append(
@@ -154,6 +157,11 @@ class AgentOrchestrator:
                     "rounds": summary["rounds"],
                 },
                 actor="autopilot",
+            )
+            outcome = "已完成" if summary["finished"] else ("需要人工接管" if summary["needsHuman"] else "已结束")
+            self.conversations.record_milestone(
+                conversation_id,
+                f"托管模式{outcome}（{summary['rounds']} 轮，阶段：{summary['stage']}）。{summary['reason'] or ''}",
             )
             bundle["autopilot"] = summary
             return bundle
@@ -718,8 +726,25 @@ class AgentOrchestrator:
                 },
                 actor="agent",
             )
+            # 执行结果与 Verifier 结论持久化到消息流:聊天历史是用户回看的主入口,
+            # 只在前端 push 的话刷新/切换对话后整段执行历程消失。
+            steps = [step for step in plan.get("steps", []) if isinstance(step, dict)]
+            done_count = sum(1 for step in steps if step.get("status") == "completed")
+            failed_count = sum(1 for step in steps if step.get("status") == "failed")
+            verdict_label = {"pass": "通过", "warning": "有风险，需审查", "blocked": "未通过，需要修复"}.get(
+                str(verification.get("verdict")), str(verification.get("verdict"))
+            )
+            self.conversations.record_milestone(
+                conversation_id,
+                f"工具计划执行结束：{done_count} 步完成、{failed_count} 步失败。"
+                f"Verifier：{verdict_label}。{verification.get('summary') or ''}",
+            )
             repair_plan, repair_loop = self._maybe_create_repair_plan(conversation_id, plan)
             if repair_plan:
+                self.conversations.record_milestone(
+                    conversation_id,
+                    f"已自动生成修复计划 #{repair_plan.get('repairSequence')}（{len(repair_plan.get('steps') or [])} 步），等待确认执行。",
+                )
                 return {
                     "tool_plan": repair_plan,
                     "executed_tool_plan": plan,
@@ -728,6 +753,10 @@ class AgentOrchestrator:
                 }
             continuation_plan, continuation_loop = self._maybe_create_continuation_plan(conversation_id, plan)
             if continuation_plan:
+                self.conversations.record_milestone(
+                    conversation_id,
+                    f"需求尚未完成，已生成推进计划（{len(continuation_plan.get('steps') or [])} 步），等待确认执行。",
+                )
                 return {
                     "tool_plan": continuation_plan,
                     "executed_tool_plan": plan,
@@ -752,10 +781,15 @@ class AgentOrchestrator:
             source_plan = self.tool_call_plans.get_plan(conversation_id)
             if not source_plan:
                 raise RuntimeError("当前对话没有可推进的工具计划。")
-            should, reason = self._should_create_continuation_plan(source_plan)
-            if not should:
-                raise RuntimeError(f"当前不需要推进计划：{reason}")
+            if source_plan.get("status") not in {"completed", "failed"}:
+                raise RuntimeError("工具计划还在执行或等待确认，暂时不能推进。")
+            # 用户手动点「继续推进」就是明确指令,不再用自动循环的终止判定拦它——
+            # 环境修复产生的 diff + 验证绿会骗过机械判定,而用户看得到需求没完成。
             plan = self._create_continuation_plan(conversation_id, source_plan)
+            self.conversations.record_milestone(
+                conversation_id,
+                f"已按用户指令生成推进计划（{len(plan.get('steps') or [])} 步），等待确认执行。",
+            )
             return {"tool_plan": plan, "continuation_loop": {"created": True, "sourcePlanId": source_plan.get("id"), "continuationPlanId": plan.get("id"), "trigger": "manual"}}
 
         raise RuntimeError(f"未知编排动作：{action}")
@@ -1059,6 +1093,19 @@ class AgentOrchestrator:
         sequence = int(plan.get("continuationSequence") or 0)
         if sequence >= 4:
             return False, "推进轮次已达上限(4)，需要人工接管或重新提需求。"
+        # 优先采信 Verifier 对"需求是否真正落地"的模型判断:环境修复(装依赖、
+        # 改 package.json)也会产生 diff 并让验证变绿,机械判定会在需求还没做时
+        # 就宣布完成——这正是"自己认为完成就完成"的反例。
+        verifier = next(
+            (
+                audit
+                for audit in reversed(plan.get("audits") or [])
+                if isinstance(audit, dict) and audit.get("source") == "Verifier"
+            ),
+            None,
+        )
+        if verifier and verifier.get("requirementCompleted") is False:
+            return True, "Verifier 判断核心需求尚未落地，继续推进定位与写入。"
         evidence = plan.get("evidence") if isinstance(plan.get("evidence"), dict) else {}
         wrote = any(
             step.get("toolId") in {"code.apply_patch", "code.write_file"} and step.get("status") == "completed"

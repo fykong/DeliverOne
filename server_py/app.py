@@ -1048,7 +1048,9 @@ def replay_mcp_tool(body: MCPReplayBody) -> dict[str, Any]:
 @app.post("/api/rollback/checkpoint")
 def rollback_checkpoint(body: RollbackCheckpointBody) -> dict[str, Any]:
     try:
-        return services.rollback.restore_checkpoint(body.conversationId, body.checkpointId)
+        result = services.rollback.restore_checkpoint(body.conversationId, body.checkpointId)
+        services.conversations.record_milestone(body.conversationId, f"已回退到检查点 {body.checkpointId}。")
+        return result
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -1056,7 +1058,11 @@ def rollback_checkpoint(body: RollbackCheckpointBody) -> dict[str, Any]:
 @app.post("/api/rollback/checkpoint-file")
 def rollback_checkpoint_file(body: RollbackCheckpointFileBody) -> dict[str, Any]:
     try:
-        return services.rollback.restore_checkpoint_file(body.conversationId, body.checkpointId, body.relativePath)
+        result = services.rollback.restore_checkpoint_file(body.conversationId, body.checkpointId, body.relativePath)
+        services.conversations.record_milestone(
+            body.conversationId, f"已把 {body.relativePath} 回退到检查点 {body.checkpointId} 的版本。"
+        )
+        return result
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -1064,7 +1070,11 @@ def rollback_checkpoint_file(body: RollbackCheckpointFileBody) -> dict[str, Any]
 @app.post("/api/rollback/checkpoint-hunk")
 def rollback_checkpoint_hunk(body: RollbackCheckpointHunkBody) -> dict[str, Any]:
     try:
-        return services.rollback.restore_checkpoint_hunk(body.conversationId, body.checkpointId, body.relativePath, body.hunkIndex)
+        result = services.rollback.restore_checkpoint_hunk(body.conversationId, body.checkpointId, body.relativePath, body.hunkIndex)
+        services.conversations.record_milestone(
+            body.conversationId, f"已回退 {body.relativePath} 的第 {body.hunkIndex + 1} 个改动块（检查点 {body.checkpointId}）。"
+        )
+        return result
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -1075,7 +1085,10 @@ def rollback_original(body: RollbackOriginalBody) -> dict[str, Any]:
     if not sandbox:
         raise HTTPException(status_code=400, detail="当前对话还没有沙盒。")
     try:
-        return services.rollback.hard_reset(body.conversationId, sandbox["repoPath"], body.confirmed)
+        result = services.rollback.hard_reset(body.conversationId, sandbox["repoPath"], body.confirmed)
+        if body.confirmed:
+            services.conversations.record_milestone(body.conversationId, "沙盒已回退到原始仓库状态，全部改动已撤销。")
+        return result
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -1105,6 +1118,10 @@ def delivery_package(body: DeliveryPackageBody) -> dict[str, Any]:
         events = services.events.list(body.conversationId, 300)
         report = services.delivery.package(body.conversationId, state, plan, checkpoints, events)
         services.memory.record_delivery_report(body.conversationId, report)
+        services.conversations.record_milestone(
+            body.conversationId,
+            f"交付包已生成：{report.get('statusShort') or report.get('status') or '完成'}，变更文件 {len(report.get('changedFiles') or [])} 个。",
+        )
         return report
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -1156,6 +1173,11 @@ def delivery_submit(body: DeliverySubmitBody) -> dict[str, Any]:
             branch=record.get("branch"),
             commit_sha=record.get("commitSha"),
         )
+        pr_url = (record.get("pullRequest") or {}).get("url")
+        services.conversations.record_milestone(
+            body.conversationId,
+            f"提测完成：分支 {record.get('branch')}，PR：{pr_url or '未创建'}。",
+        )
         return record
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -1191,6 +1213,10 @@ def preview_start(body: PreviewStartBody) -> dict[str, Any]:
     )
     if needs_install:
         result["note"] = "检测到沙盒未安装依赖，已自动先执行 npm install（首次需 1-3 分钟），完成后预览会自动出现。"
+    milestone = f"预览命令已在沙盒启动：{command}"
+    if needs_install:
+        milestone += "（检测到缺依赖，已自动先安装）"
+    services.conversations.record_milestone(conversation_id, milestone)
     return result
 
 
