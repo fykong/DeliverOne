@@ -234,7 +234,7 @@ class AgentOrchestrator:
                     if not should_continue:
                         # 推进上限触发的停止是"被迫停",不是"做完了"——
                         # 阅读量任务实测:前端没写完却报"已完成",必须如实交还人工。
-                        if "上限" in reason:
+                        if self._continuation_stopped_at_cap(executed):
                             summary.update(needsHuman=True, stage="continuation-cap", reason=f"需求可能尚未全部完成：{reason}")
                             return finish(bundle)
                         summary.update(finished=True, stage="done", reason=reason)
@@ -253,7 +253,7 @@ class AgentOrchestrator:
             if status == "completed":
                 should_continue, reason = self._should_create_continuation_plan(plan)
                 if not should_continue:
-                    if "上限" in reason:
+                    if self._continuation_stopped_at_cap(plan):
                         summary.update(needsHuman=True, stage="continuation-cap", reason=f"需求可能尚未全部完成：{reason}")
                         return finish(self._bundle(conversation_id))
                     summary.update(finished=True, stage="done", reason=reason)
@@ -1153,6 +1153,14 @@ class AgentOrchestrator:
             )
             return None, {"created": False, "sourcePlanId": source_plan.get("id"), "reason": str(error)}
 
+    # 推进循环轮次上限:防自动循环失控的安全阀。到限即交还人工,
+    # 不是质量判断——质量判断由 Verifier 的 requirementCompleted 负责。
+    CONTINUATION_MAX_ROUNDS = 4
+
+    def _continuation_stopped_at_cap(self, plan: dict[str, Any]) -> bool:
+        """推进停止是否因轮次耗尽(被迫停)而非需求完成(自然停)。"""
+        return int(plan.get("continuationSequence") or 0) >= self.CONTINUATION_MAX_ROUNDS
+
     def _should_create_continuation_plan(self, plan: dict[str, Any]) -> tuple[bool, str]:
         if plan.get("status") != "completed":
             return False, "计划未完成，不进入推进循环。"
@@ -1160,8 +1168,10 @@ class AgentOrchestrator:
         if any(step.get("status") == "failed" for step in steps):
             return False, "存在失败步骤，由修复循环处理。"
         sequence = int(plan.get("continuationSequence") or 0)
-        if sequence >= 4:
-            return False, "推进轮次已达上限(4)，需要人工接管或重新提需求。"
+        if sequence >= self.CONTINUATION_MAX_ROUNDS:
+            # 注意:这是"被迫停"不是"做完了"。调用方必须用 _continuation_stop_kind
+            # 区分,绝不能解析这段中文文案。
+            return False, f"推进轮次已达上限({self.CONTINUATION_MAX_ROUNDS})，需要人工接管或重新提需求。"
         # 优先采信 Verifier 对"需求是否真正落地"的模型判断:环境修复(装依赖、
         # 改 package.json)也会产生 diff 并让验证变绿,机械判定会在需求还没做时
         # 就宣布完成——这正是"自己认为完成就完成"的反例。
@@ -1188,7 +1198,12 @@ class AgentOrchestrator:
         # 同步进来的历史报告可能是旧的失败结果；以最近一次验证为准，未通过就继续。
         if not verifications[-1].get("ok"):
             return True, "已写入代码但最近一次验证未通过，继续推进修复与复验。"
-        return False, "已有代码改动且最近验证通过，推进循环结束。"
+        # 宣布"完成"必须拿到模型的显式 True:requirementCompleted 为 None
+        # (验证走了规则回退/模型解析失败/老审计)时,机械的"有 diff+验证绿"
+        # 不足以证明需求落地——审计实锤过 None 漏洞会把半成品放行。
+        if not verifier or verifier.get("requirementCompleted") is not True:
+            return True, "缺少 Verifier 对需求完成度的显式确认，继续推进一轮复核验证。"
+        return False, "已有代码改动、验证通过且 Verifier 确认需求已落地，推进循环结束。"
 
     def _create_continuation_plan(self, conversation_id: str, source_plan: dict[str, Any]) -> dict[str, Any]:
         tools = self.tools.list()

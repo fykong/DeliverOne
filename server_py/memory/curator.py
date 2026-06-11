@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
 from server_py.core.json_io import now_iso, read_json, write_json
 from server_py.core.paths import WORKSPACE_ROOT
 from server_py.memory.long_term_store import LongTermMemoryStore
+
+# FastAPI 同步端点跑在线程池里,同仓库多会话并发 curate 是真实场景;
+# read-modify-write 不加锁会丢写(后写覆盖先写)。进程内全局锁足够,
+# 因为所有写入都经由本进程的 Curator 实例。
+_CURATOR_LOCK = threading.Lock()
 
 
 SECTIONS = [
@@ -57,7 +63,45 @@ class MemoryCurator:
         self.root = root or WORKSPACE_ROOT / "memory"
         self.namespace_store = namespace_store or LongTermMemoryStore()
 
+    def purge_conversation(self, conversation_id: str) -> int:
+        """删除会话时,清除策展记忆(repo-memory/全局偏好)中来源于它的条目。"""
+        with _CURATOR_LOCK:
+            removed = 0
+            targets = list((self.root / "repos").glob("*/repo-memory.json")) if (self.root / "repos").exists() else []
+            targets.append(self.root / "global" / "user-preferences.json")
+            for path in targets:
+                data = read_json(path, None)
+                if not isinstance(data, dict):
+                    continue
+                changed = False
+                if isinstance(data.get("sections"), dict):
+                    for section, items in data["sections"].items():
+                        kept = [i for i in items if str(i.get("conversationId") or "") != conversation_id]
+                        if len(kept) != len(items):
+                            removed += len(items) - len(kept)
+                            data["sections"][section] = kept
+                            changed = True
+                if isinstance(data.get("items"), list):
+                    kept = [i for i in data["items"] if str(i.get("conversationId") or "") != conversation_id]
+                    if len(kept) != len(data["items"]):
+                        removed += len(data["items"]) - len(kept)
+                        data["items"] = kept
+                        changed = True
+                if changed:
+                    write_json(path, data)
+            return removed
+
     def curate(
+        self,
+        conversation_id: str,
+        entries: list[dict[str, Any]],
+        patterns: list[dict[str, Any]],
+        repository: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        with _CURATOR_LOCK:
+            return self._curate_locked(conversation_id, entries, patterns, repository)
+
+    def _curate_locked(
         self,
         conversation_id: str,
         entries: list[dict[str, Any]],

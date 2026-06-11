@@ -696,7 +696,14 @@ def delete_conversation(conversation_id: str) -> dict[str, Any]:
                     services.processes.stop(process.get("id"), conversation_id)
                 except Exception:
                     pass
-        return services.conversations.delete(conversation_id)
+        result = services.conversations.delete(conversation_id)
+        # 会话目录删掉的同时,清除它写入跨会话长期库/模式库的条目——
+        # 否则坏会话的幻觉路径、失败方案会一直污染同仓库的后续会话。
+        purged = services.memory.long_term_store.purge_conversation(conversation_id)
+        purged += services.memory.pattern_store.purge_conversation(conversation_id)
+        purged += services.memory.curator.purge_conversation(conversation_id)
+        result["purgedLongTermMemories"] = purged
+        return result
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

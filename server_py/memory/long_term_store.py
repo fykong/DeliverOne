@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from pathlib import Path
 from typing import Any
 
 from server_py.core.json_io import now_iso, read_json, write_json
 from server_py.core.paths import WORKSPACE_ROOT
 
+
+# 同仓库多会话并发写长期库是真实场景(FastAPI 线程池);
+# read-modify-write 必须串行化,否则后写覆盖先写丢数据。
+_STORE_LOCK = threading.Lock()
 
 LONG_TERM_LIMIT = 800
 PROMOTED_KINDS = {"repo", "decision", "failure", "delivery", "preview", "skill"}
@@ -52,6 +57,19 @@ class LongTermMemoryStore:
         items = read_json(self.path, [])
         return items if isinstance(items, list) else []
 
+    def purge_conversation(self, conversation_id: str) -> int:
+        """删除会话时连带物理清除它写入长期库的条目。
+
+        用户删会话的意图就是"这次的痕迹别留着"——坏会话(幻觉路径、
+        失败方案)的长期记忆若不清,会继续污染同仓库的后续会话。"""
+        with _STORE_LOCK:
+            items = self.all_items()
+            kept = [item for item in items if str(item.get("conversationId") or "") != conversation_id]
+            removed = len(items) - len(kept)
+            if removed:
+                write_json(self.path, kept)
+            return removed
+
     def upsert_manual(
         self,
         *,
@@ -72,58 +90,59 @@ class LongTermMemoryStore:
         if not cleaned_content:
             raise RuntimeError("记忆内容不能为空。")
 
-        items = self.all_items()
-        by_id = {str(item.get("id")): item for item in items if item.get("id")}
-        repo_source = self._repo_source(repository)
-        namespace = self.namespace_for(repository)
-        now = now_iso()
-        target_id = item_id or self._manual_id(namespace, cleaned_title, cleaned_content)
-        existing = by_id.get(target_id, {})
-        before = self._review_snapshot(existing) if existing else None
-        tag_set = {str(tag).strip() for tag in tags or [] if str(tag).strip()}
-        tag_set.update({"long-term", "manual"})
-        source_phase = self._source_phase(kind.strip() or "decision", tag_set, manual=True)
-        item = {
-            **existing,
-            "id": target_id,
-            "conversationId": conversation_id,
-            "namespace": namespace,
-            "repoSource": repo_source,
-            "repoHead": str((repository or {}).get("head") or ""),
-            "scope": "repository" if repo_source else "workspace",
-            "kind": kind.strip() or "decision",
-            "title": cleaned_title[:200],
-            "content": cleaned_content[-5000:],
-            "sourcePath": str(self.path),
-            "tags": sorted(tag_set),
-            "importance": max(0.1, min(float(importance or 2.8), 5.0)),
-            "pinned": bool(pinned),
-            "forgotten": False,
-            "manual": True,
-            "sourcePhase": source_phase,
-            "firstSeenAt": existing.get("firstSeenAt") or now,
-            "lastSeenAt": now,
-            "updatedAt": now,
-            "useCount": int(existing.get("useCount") or 0),
-            "sourceEntryId": existing.get("sourceEntryId") or target_id,
-        }
-        patch = self._manual_patch(
-            items=items,
-            target_id=target_id,
-            before=before,
-            after=self._review_snapshot(item),
-            namespace=namespace,
-            repo_source=repo_source,
-            created_at=now,
-        )
-        history = existing.get("patchHistory") if isinstance(existing.get("patchHistory"), list) else []
-        item["lastPatch"] = patch
-        item["patchHistory"] = [*history, patch][-20:]
-        by_id[target_id] = item
-        updated = list(by_id.values())
-        updated.sort(key=lambda value: (bool(value.get("pinned")), float(value.get("importance") or 1), str(value.get("lastSeenAt") or "")), reverse=True)
-        write_json(self.path, updated[:LONG_TERM_LIMIT])
-        return item
+        with _STORE_LOCK:
+            items = self.all_items()
+            by_id = {str(item.get("id")): item for item in items if item.get("id")}
+            repo_source = self._repo_source(repository)
+            namespace = self.namespace_for(repository)
+            now = now_iso()
+            target_id = item_id or self._manual_id(namespace, cleaned_title, cleaned_content)
+            existing = by_id.get(target_id, {})
+            before = self._review_snapshot(existing) if existing else None
+            tag_set = {str(tag).strip() for tag in tags or [] if str(tag).strip()}
+            tag_set.update({"long-term", "manual"})
+            source_phase = self._source_phase(kind.strip() or "decision", tag_set, manual=True)
+            item = {
+                **existing,
+                "id": target_id,
+                "conversationId": conversation_id,
+                "namespace": namespace,
+                "repoSource": repo_source,
+                "repoHead": str((repository or {}).get("head") or ""),
+                "scope": "repository" if repo_source else "workspace",
+                "kind": kind.strip() or "decision",
+                "title": cleaned_title[:200],
+                "content": cleaned_content[-5000:],
+                "sourcePath": str(self.path),
+                "tags": sorted(tag_set),
+                "importance": max(0.1, min(float(importance or 2.8), 5.0)),
+                "pinned": bool(pinned),
+                "forgotten": False,
+                "manual": True,
+                "sourcePhase": source_phase,
+                "firstSeenAt": existing.get("firstSeenAt") or now,
+                "lastSeenAt": now,
+                "updatedAt": now,
+                "useCount": int(existing.get("useCount") or 0),
+                "sourceEntryId": existing.get("sourceEntryId") or target_id,
+            }
+            patch = self._manual_patch(
+                items=items,
+                target_id=target_id,
+                before=before,
+                after=self._review_snapshot(item),
+                namespace=namespace,
+                repo_source=repo_source,
+                created_at=now,
+            )
+            history = existing.get("patchHistory") if isinstance(existing.get("patchHistory"), list) else []
+            item["lastPatch"] = patch
+            item["patchHistory"] = [*history, patch][-20:]
+            by_id[target_id] = item
+            updated = list(by_id.values())
+            updated.sort(key=lambda value: (bool(value.get("pinned")), float(value.get("importance") or 1), str(value.get("lastSeenAt") or "")), reverse=True)
+            write_json(self.path, updated[:LONG_TERM_LIMIT])
+            return item
 
     def review_manual(
         self,
@@ -184,6 +203,15 @@ class LongTermMemoryStore:
         entries: list[dict[str, Any]],
         repository: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
+        with _STORE_LOCK:
+            return self._upsert_from_entries_locked(conversation_id, entries, repository)
+
+    def _upsert_from_entries_locked(
+        self,
+        conversation_id: str,
+        entries: list[dict[str, Any]],
+        repository: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
         current = self.all_items()
         by_id = {str(item.get("id")): item for item in current if item.get("id")}
         repo_source = self._repo_source(repository)
@@ -228,6 +256,10 @@ class LongTermMemoryStore:
     def mark_used(self, item_ids: list[str]) -> None:
         if not item_ids:
             return
+        with _STORE_LOCK:
+            self._mark_used_locked(item_ids)
+
+    def _mark_used_locked(self, item_ids: list[str]) -> None:
         used = set(item_ids)
         changed = False
         items = self.all_items()
@@ -246,17 +278,18 @@ class LongTermMemoryStore:
         return self._set_flag(item_id, "forgotten", forgotten)
 
     def _set_flag(self, item_id: str, key: str, value: bool) -> dict[str, Any] | None:
-        items = self.all_items()
-        updated = None
-        for item in items:
-            if item.get("id") == item_id:
-                item[key] = value
-                item["updatedAt"] = now_iso()
-                updated = item
-                break
-        if updated:
-            write_json(self.path, items)
-        return updated
+        with _STORE_LOCK:
+            items = self.all_items()
+            updated = None
+            for item in items:
+                if item.get("id") == item_id:
+                    item[key] = value
+                    item["updatedAt"] = now_iso()
+                    updated = item
+                    break
+            if updated:
+                write_json(self.path, items)
+            return updated
 
     def _repo_source(self, repository: dict[str, Any] | None) -> str:
         return str((repository or {}).get("source") or "").strip().lower().replace("\\", "/")

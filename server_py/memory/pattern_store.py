@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,9 @@ from server_py.core.json_io import now_iso, read_json, write_json
 from server_py.core.paths import WORKSPACE_ROOT
 from server_py.memory.long_term_store import LongTermMemoryStore
 
+
+# read-modify-write 串行化:FastAPI 线程池下同仓库并发写会丢数据。
+_PATTERN_LOCK = threading.Lock()
 
 PATTERN_LIMIT = 400
 
@@ -55,7 +59,46 @@ class MemoryPatternStore:
             and str(item.get("namespace") or "workspace") in allowed
         ]
 
+    def purge_conversation(self, conversation_id: str) -> int:
+        """删除会话时清除以该会话为唯一来源的模式条目;
+        多会话佐证的模式只摘掉该会话的 example,模式本身保留。"""
+        with _PATTERN_LOCK:
+            return self._purge_conversation_locked(conversation_id)
+
+    def _purge_conversation_locked(self, conversation_id: str) -> int:
+        items = read_json(self.path, [])
+        if not isinstance(items, list):
+            return 0
+        kept: list[dict[str, Any]] = []
+        removed = 0
+        changed = False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            before = item.get("examples") or []
+            examples = [ex for ex in before if str(ex.get("conversationId") or "") != conversation_id]
+            if len(examples) != len(before):
+                changed = True
+            if str(item.get("conversationId") or "") == conversation_id and not examples:
+                removed += 1
+                changed = True
+                continue
+            item["examples"] = examples
+            kept.append(item)
+        if changed:
+            write_json(self.path, kept)
+        return removed
+
     def upsert_from_entries(
+        self,
+        conversation_id: str,
+        entries: list[dict[str, Any]],
+        repository: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        with _PATTERN_LOCK:
+            return self._upsert_from_entries_locked(conversation_id, entries, repository)
+
+    def _upsert_from_entries_locked(
         self,
         conversation_id: str,
         entries: list[dict[str, Any]],
