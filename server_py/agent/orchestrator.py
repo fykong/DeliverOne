@@ -182,15 +182,32 @@ class AgentOrchestrator:
             self.events.append(conversation_id, "autopilot.auto_approve", {"target": "plan"}, actor="autopilot")
             bundle = self.run(conversation_id, "approve_plan", repository, sandbox, requirement=requirement)
             trace.append({"action": "approve_plan", "phase": (bundle.get("conversation") or {}).get("phase")})
-        if self.conversations.get(conversation_id).get("phase") == "waiting_sandbox":
+        state_after_plan = self.conversations.get(conversation_id)
+        if state_after_plan.get("phase") == "waiting_sandbox":
             summary.update(needsHuman=True, stage="sandbox", reason="当前对话还没有沙盒，请先接入仓库。")
             return finish(bundle)
+        if state_after_plan.get("phase") == "failed":
+            # 规划阶段失败(典型:模型鉴权/网络)时必须立刻停——
+            # 压测实锤过:继续往下走会捡到上一个需求的已完成旧计划,
+            # 0 轮就谎报"已完成"。
+            summary.update(needsHuman=True, stage="planning-failed", reason="规划阶段失败(常见原因:模型不可用),本次需求没有生成计划。")
+            return finish(bundle)
+        # 本次托管只认本次需求的计划:同一会话跑过多个需求时,
+        # get_plan 返回的最新计划可能属于上一个需求。
+        current_requirement = str(state_after_plan.get("lastRequirement") or requirement or "").strip()
 
         while summary["rounds"] < max_rounds:
             plan = self.tool_call_plans.get_plan(conversation_id)
             if not plan:
                 summary.update(needsHuman=True, stage="tool-plan", reason="没有生成工具计划。")
                 return finish(bundle)
+            if current_requirement and str(plan.get("requirement") or "").strip() != current_requirement:
+                summary.update(
+                    needsHuman=True,
+                    stage="stale-plan",
+                    reason="当前最新工具计划属于上一个需求,本次需求未能生成计划(通常因规划阶段失败),需要人工处理。",
+                )
+                return finish(self._bundle(conversation_id))
             status = plan.get("status")
             if status == "waiting_confirmation":
                 try:
