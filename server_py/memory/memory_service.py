@@ -38,6 +38,25 @@ def slim_memory_for_model(snapshot: dict[str, Any] | None) -> dict[str, Any] | N
         key=lambda item: float(item.get("score") or 0),
         reverse=True,
     )
+    def _is_dead_end(item: dict[str, Any]) -> bool:
+        text = f"{item.get('title') or ''}\n{item.get('content') or ''}"
+        tags = {str(tag) for tag in (item.get("tags") or [])}
+        return (
+            item.get("kind") == "failure"
+            or "do-not-repeat" in tags
+            or "doNotRepeat" in str(item.get("sourcePath") or "")
+            or "不存在" in text[:300]
+            or "找不到" in text[:300]
+        )
+
+    # 失败经验/已证伪路径单独成区:混在普通召回里,模型会把
+    # "ArticleCard 不存在"里的路径名当成候选去搜(阅读量任务实测翻车)。
+    # 字段名即指令:这些是禁区,不是建议。
+    dead_ends = [
+        {"title": item.get("title"), "fact": str(item.get("content") or "")[:300]}
+        for item in ranked
+        if _is_dead_end(item)
+    ][:6]
     slim_items = [
         {
             "title": item.get("title"),
@@ -48,6 +67,7 @@ def slim_memory_for_model(snapshot: dict[str, Any] | None) -> dict[str, Any] | N
             "score": item.get("score"),
         }
         for item in ranked[:10]
+        if not _is_dead_end(item)
     ]
     ledger = snapshot.get("taskLedger") if isinstance(snapshot.get("taskLedger"), dict) else None
     slim_ledger = None
@@ -66,6 +86,9 @@ def slim_memory_for_model(snapshot: dict[str, Any] | None) -> dict[str, Any] | N
         "repo": (snapshot.get("repo") or {}).get("summary") if isinstance(snapshot.get("repo"), dict) else None,
         "contextPack": snapshot.get("contextPack"),
         "recall": {"query": recall.get("query"), "items": slim_items},
+        # 已证伪的死路:这些路径/做法已被真实执行证明不存在或失败,
+        # 禁止再作为搜索词、读取目标或方案选项;只能作为排除项。
+        "provenDeadEnds_doNotRetry": dead_ends or None,
         "taskState": snapshot.get("taskState"),
         "taskLedger": slim_ledger,
         "searchIntent": snapshot.get("searchIntent"),

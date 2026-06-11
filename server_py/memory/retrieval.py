@@ -58,6 +58,12 @@ class MemoryRetriever:
             scored.append({**candidate, "score": score, "matchSignals": signals, "reason": self._reason(signals)})
 
         scored.sort(key=lambda item: item["score"], reverse=True)
+        # 质量门槛:limit 是上限不是配额。低于绝对底线或与榜首差距过大的
+        # 候选不进上下文——凑数的弱相关条目就是噪音,宁缺毋滥。
+        if scored:
+            top_score = scored[0]["score"]
+            floor = max(3.0, top_score * 0.22)
+            scored = [item for item in scored if item["score"] >= floor or item.get("pinned")]
         selected = self._diversify(scored, limit)
         return {
             "query": query,
